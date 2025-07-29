@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("SpaceTrafficController")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+cfbec9a6594d436d5b6a39b2142f1e12a44ba87a")]
 [assembly: System.Reflection.AssemblyProductAttribute("SpaceTrafficController")]
 [assembly: System.Reflection.AssemblyTitleAttribute("SpaceTrafficController")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

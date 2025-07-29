@@ -1,33 +1,52 @@
 ﻿using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
+using SpaceTrafficController.Core;
+using SpaceTrafficController.GameObjects;
+using SpaceTrafficController.Input;
+using SpaceTrafficController.Simulation;
+using SpaceTrafficController.UI;
+using SpaceTrafficController.Utilities;
 
 namespace SpaceTrafficController
 {
     public class MyGame : Game
     {
-        private GraphicsDeviceManager _graphics;
-        private SpriteBatch _spriteBatch;
+        private GraphicsDeviceManager Graphics;
+        private SpriteBatch SpriteBatch;
+        private Camera2D Camera;
+        private InputHandler InputHandler;
+
+        private GameState GameState;
+        private SimulationRenderer SimulationRenderer;
+
 
         public MyGame()
         {
-            _graphics = new GraphicsDeviceManager(this);
+            Graphics = new GraphicsDeviceManager(this);
             Content.RootDirectory = "Content";
             IsMouseVisible = true;
+
+            GameState = new GameState();
         }
 
         protected override void Initialize()
         {
-            // TODO: Add your initialization logic here
+            SetWindowToNearlyFullscreen();
+
+            GameState.Init();
 
             base.Initialize();
         }
 
         protected override void LoadContent()
         {
-            _spriteBatch = new SpriteBatch(GraphicsDevice);
+            Camera = new Camera2D(GraphicsDevice);
+            SpriteBatch = new SpriteBatch(GraphicsDevice);
+            SimulationRenderer = new SimulationRenderer(SpriteBatch, Camera);            
+            InputHandler = new InputHandler(Camera, GameState);
 
-            // TODO: use this.Content to load your game content here
+            Test1();
         }
 
         protected override void Update(GameTime gameTime)
@@ -35,18 +54,39 @@ namespace SpaceTrafficController
             if (GamePad.GetState(PlayerIndex.One).Buttons.Back == ButtonState.Pressed || Keyboard.GetState().IsKeyDown(Keys.Escape))
                 Exit();
 
-            // TODO: Add your update logic here
+            GameState.Update(gameTime);
+            InputHandler.Update(gameTime);
 
             base.Update(gameTime);
         }
 
         protected override void Draw(GameTime gameTime)
         {
-            GraphicsDevice.Clear(Color.CornflowerBlue);
+            GraphicsDevice.Clear(Color.Black);
 
-            // TODO: Add your drawing code here
+            SpriteBatch.Begin(transformMatrix: Camera.GetTransform());
+            SimulationRenderer.Draw(GameState);
+            SpriteBatch.End();
 
             base.Draw(gameTime);
+        }
+
+        private void SetWindowToNearlyFullscreen()
+        {
+            var scale = 0.9;
+            var screenWidth = (int) (GraphicsAdapter.DefaultAdapter.CurrentDisplayMode.Width * scale);
+            var screenHeight = (int) (GraphicsAdapter.DefaultAdapter.CurrentDisplayMode.Height * scale);
+
+            Graphics.PreferredBackBufferWidth = screenWidth;
+            Graphics.PreferredBackBufferHeight = screenHeight;
+            Graphics.IsFullScreen = false;
+            Graphics.ApplyChanges();
+        }
+
+
+        private void Test1()
+        {
+            GameState.OrbitingObjects.Add(new Ship(new Orbit(2000000, 100000, 0d.ToRadians(), 180d.ToRadians())));
         }
     }
 }
