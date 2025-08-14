@@ -41,12 +41,24 @@ public class SimulationRenderer
 
     private void DrawShips(List<Ship> ships)
     {
-        int size = 15;
+        int size = 5;
         foreach (Ship ship in ships)
         {
             Vector2 position = ship.Orbit.PositionVector / SCALE;
-            DrawOrbit(ship.Orbit);
-            SpriteBatch.DrawRectangle(position.X - (size / 2 / Camera.Zoom), position.Y - (size / 2 / Camera.Zoom), size / Camera.Zoom, size / Camera.Zoom, Color.Green, 2 / Camera.Zoom);
+
+            // orbit
+            if (ship.ShipStatus.IsSelected)
+            {
+                DrawOrbit(ship.Orbit);
+            }
+
+            // ship square
+            SpriteBatch.DrawRectangle(position.X - (size / 2 ), position.Y - (size / 2 ), size , size , Color.LimeGreen, 1.5f);
+            
+            // seperation circles
+            CircleF seperationCircle = new CircleF() { Center = position, Radius = GameConstants.ShipSepration / 2 / SCALE };
+            Color seperationCircleColor = ship.ShipStatus.IsEncroached ? Color.Red : Color.Green;
+            SpriteBatch.DrawCircle(seperationCircle, 20, seperationCircleColor, 1.5f);
         }
     }
 

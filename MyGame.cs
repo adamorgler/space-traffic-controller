@@ -7,6 +7,7 @@ using SpaceTrafficController.Input;
 using SpaceTrafficController.Simulation;
 using SpaceTrafficController.UI;
 using SpaceTrafficController.Utilities;
+using System;
 
 namespace SpaceTrafficController
 {
@@ -46,7 +47,7 @@ namespace SpaceTrafficController
             SimulationRenderer = new SimulationRenderer(SpriteBatch, Camera);            
             InputHandler = new InputHandler(Camera, GameState);
 
-            Test1();
+            Test2();
         }
 
         protected override void Update(GameTime gameTime)
@@ -87,6 +88,25 @@ namespace SpaceTrafficController
         private void Test1()
         {
             GameState.OrbitingObjects.Add(new Ship(new Orbit(2000000, 100000, 0d.ToRadians(), 180d.ToRadians())));
+        }
+
+        private void Test2()
+        {
+            int minOrbit = 100000;
+            int maxOrbit = 2000000;
+            Random r = new Random();
+            for (int i = 0; i < 1000; i++)
+            {
+                GameState.OrbitingObjects.Add(
+                    new Ship(
+                        new Orbit(
+                            r.Next(minOrbit, maxOrbit),
+                            r.Next(minOrbit, maxOrbit),
+                            (r.NextDouble() * 360).ToRadians(),
+                            (r.NextDouble() * 360).ToRadians())
+                        )
+                    );
+            }
         }
     }
 }

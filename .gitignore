@@ -1,5 +1,18 @@
-﻿################################################################################
-# This .gitignore file was automatically created by Microsoft(R) Visual Studio.
-################################################################################
+﻿# Visual Studio and Build Artifacts
+.vs/
+bin/
+obj/
+Debug/
+Release/
+*.exe
+*.pdb
+*.dll
+*.user
+*.suo
+*.userprefs
+*.cachefile
+*.log
+ipch/
 
-/.vs/SpaceTrafficController
+# MonoGame Specific
+CompiledContent/
