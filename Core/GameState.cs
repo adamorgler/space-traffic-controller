@@ -13,6 +13,7 @@ public class GameState
     public List<HasOrbit> OrbitingObjects { get; set; }
     public List<Ship> Ships { get { return OrbitingObjects.OfType<Ship>().ToList(); } }
     public List<Station> Stations { get { return Stations.OfType<Station>().ToList(); } }
+    public Ship SelectedShip { get; set; }
 
     public void Init()
     {
@@ -66,7 +67,7 @@ public class GameState
 
         foreach (var ship in Ships)
         {
-            ship.ShipStatus.IsEncroached = false;
+            ship.Status.IsEncroached = false;
 
             int cx = (int)MathF.Floor(ship.Position.X / cellSize);
             int cy = (int)MathF.Floor(ship.Position.Y / cellSize);            
@@ -102,8 +103,8 @@ public class GameState
 
                             if (Vector2.Distance(shipA.Position, shipB.Position) <= GameConstants.ShipSepration)
                             {
-                                shipA.ShipStatus.IsEncroached = true;
-                                shipB.ShipStatus.IsEncroached = true;
+                                shipA.Status.IsEncroached = true;
+                                shipB.Status.IsEncroached = true;
                             }
                         }
                     }

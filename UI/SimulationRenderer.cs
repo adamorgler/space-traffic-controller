@@ -19,7 +19,7 @@ public class SimulationRenderer
     private readonly SpriteBatch SpriteBatch;
     private readonly Camera2D Camera;
 
-    private const int SCALE = 10000;
+    private const int Scale = GameConstants.Scale;
 
     public SimulationRenderer(SpriteBatch spriteBatch, Camera2D camera)
     {
@@ -35,7 +35,7 @@ public class SimulationRenderer
 
     private void DrawPlanet()
     {
-        int radius = (int) (PhysicalConstants.RadiusOfPlanet / SCALE);
+        int radius = (int) (PhysicalConstants.RadiusOfPlanet / Scale);
         SpriteBatch.DrawCircle(new Vector2(0, 0), radius, 360, Color.Blue, radius);
     }
 
@@ -44,20 +44,21 @@ public class SimulationRenderer
         int size = 5;
         foreach (Ship ship in ships)
         {
-            Vector2 position = ship.Orbit.PositionVector / SCALE;
+            Vector2 position = ship.Orbit.PositionVector / Scale;
 
             // orbit
-            if (ship.ShipStatus.IsSelected)
+            if (ship.Status.IsSelected)
             {
                 DrawOrbit(ship.Orbit);
             }
 
             // ship square
-            SpriteBatch.DrawRectangle(position.X - (size / 2 ), position.Y - (size / 2 ), size , size , Color.LimeGreen, 1.5f);
+            Color shipColor = ship.Status.IsSelected ? Color.Gold : Color.LimeGreen;
+            SpriteBatch.DrawRectangle(position.X - (size / 2 ), position.Y - (size / 2 ), size , size , shipColor, 1.5f);
             
             // seperation circles
-            CircleF seperationCircle = new CircleF() { Center = position, Radius = GameConstants.ShipSepration / 2 / SCALE };
-            Color seperationCircleColor = ship.ShipStatus.IsEncroached ? Color.Red : Color.Green;
+            CircleF seperationCircle = new CircleF() { Center = position, Radius = GameConstants.ShipSepration / 2 / Scale };
+            Color seperationCircleColor = ship.Status.IsEncroached ? Color.Red : Color.Green;
             SpriteBatch.DrawCircle(seperationCircle, 20, seperationCircleColor, 1.5f);
         }
     }
@@ -69,10 +70,10 @@ public class SimulationRenderer
 
     private void DrawOrbit(Orbit orbit)
     {
-        var start = orbit.GetPositionAtAngle(0d.ToRadians()) / SCALE;
+        var start = orbit.GetPositionAtAngle(0d.ToRadians()) / Scale;
         for (int i = 2; i <= 360; i += 2)
         {
-            var end = orbit.GetPositionAtAngle(((double)i).ToRadians()) / SCALE;
+            var end = orbit.GetPositionAtAngle(((double)i).ToRadians()) / Scale;
             SpriteBatch.DrawLine(start, end, Color.White, 1f / Camera.Zoom);
             start = end;
         };

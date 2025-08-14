@@ -16,8 +16,8 @@ public class Ship : HasOrbit
     }
 
     public string Name { get; set; }
-    public ShipState ShipState { get; set; }
-    public ShipStatus ShipStatus { get; set; } = new();
+    public ShipState State { get; set; }
+    public ShipStatus Status { get; set; } = new();
 
     public Vector2 Position { get { return Orbit.PositionVector; } }
 }

@@ -93,7 +93,7 @@ namespace SpaceTrafficController
         private void Test2()
         {
             int minOrbit = 100000;
-            int maxOrbit = 2000000;
+            int maxOrbit = 10000000;
             Random r = new Random();
             for (int i = 0; i < 1000; i++)
             {

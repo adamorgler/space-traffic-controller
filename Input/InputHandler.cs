@@ -7,6 +7,8 @@ using System.Text;
 using System.Threading.Tasks;
 using SpaceTrafficController.Core;
 using MonoGame.Extended;
+using SpaceTrafficController.GameObjects;
+using System.Threading;
 
 namespace SpaceTrafficController.Input;
 
@@ -25,21 +27,29 @@ public class InputHandler
 
     public void Update(GameTime gameTime)
     {
-        HandleCameraMovement(gameTime);
-        HandleCameraZoom();
-        HandleWarpControl();
+        var keyboard = Keyboard.GetState();
+        var mouse = Mouse.GetState();
+
+        HandleCameraMovement(keyboard, mouse, gameTime);
+        HandleCameraZoom(mouse);
+        HandleWarpControl(keyboard);
+        HandleShipSelection(mouse);
 
         PrevKeyboardState = Keyboard.GetState();
         PrevMouseState = Mouse.GetState();
     }
 
-    private void HandleCameraMovement(GameTime gameTime)
+    private void HandleCameraMovement(KeyboardState keyboard, MouseState mouse, GameTime gameTime)
     {
-        var keyboard = Keyboard.GetState();
         float dt = (float)gameTime.ElapsedGameTime.TotalSeconds;
         float moveSpeed = 1000f * dt / Camera.Zoom;
 
         Vector2 move = Vector2.Zero;
+
+        if (mouse.MiddleButton == ButtonState.Pressed)
+        {
+            move += Vector2.Subtract(PrevMouseState.Position.ToVector2(), mouse.Position.ToVector2());
+        }
 
         if (keyboard.IsKeyDown(Keys.W) || keyboard.IsKeyDown(Keys.Up)) move.Y -= moveSpeed;
         if (keyboard.IsKeyDown(Keys.S) || keyboard.IsKeyDown(Keys.Down)) move.Y += moveSpeed;
@@ -49,9 +59,8 @@ public class InputHandler
         Camera.Move(move);
     }
 
-    private void HandleCameraZoom()
+    private void HandleCameraZoom(MouseState mouse)
     {
-        var mouse = Mouse.GetState();
         int scrollDelta = mouse.ScrollWheelValue - PrevMouseState.ScrollWheelValue;
 
         if (scrollDelta != 0)
@@ -61,10 +70,8 @@ public class InputHandler
         }
     }
 
-    private void HandleWarpControl()
+    private void HandleWarpControl(KeyboardState keyboard)
     {
-        var keyboard = Keyboard.GetState();
-
         if (keyboard.IsKeyDown(Keys.OemComma) && PrevKeyboardState.IsKeyUp(Keys.OemComma))
         {
             GameState.DecreaseWarp();
@@ -74,5 +81,36 @@ public class InputHandler
         {
             GameState.IncreaseWarp();
         }
+    }
+
+    private void HandleShipSelection(MouseState mouse)
+    {
+        if (mouse.LeftButton == ButtonState.Pressed && PrevMouseState.LeftButton == ButtonState.Released)
+        {
+            Vector2 mouseWorldPos = GetMouseWorldPosition(mouse);
+
+            var ships = GameState.Ships.OrderBy(x => Vector2.Distance(mouseWorldPos, x.Position / GameConstants.Scale)).ToList();
+
+            float clickRadius = 10f;
+            foreach (var ship in ships)
+            {
+                if (Vector2.Distance(mouseWorldPos, ship.Position / GameConstants.Scale) < clickRadius && !ship.Status.IsSelected)
+                {
+                    if (GameState.SelectedShip is not null) 
+                        GameState.SelectedShip.Status.IsSelected = false;
+                    ship.Status.IsSelected = true;
+                    GameState.SelectedShip = ship;
+                    return;
+                }
+                ship.Status.IsSelected = false;
+            }
+            GameState.SelectedShip = null;
+        }
+    }
+
+    private Vector2 GetMouseWorldPosition(MouseState mouse)
+    {
+        var screenPos = mouse.Position.ToVector2();
+        return Camera.ScreenToWorld(screenPos);
     }
 }
