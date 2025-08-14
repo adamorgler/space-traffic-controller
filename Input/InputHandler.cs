@@ -1,14 +1,10 @@
 ﻿using Microsoft.Xna.Framework.Input;
 using Microsoft.Xna.Framework;
-using System;
-using System.Collections.Generic;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using SpaceTrafficController.Core;
-using MonoGame.Extended;
 using SpaceTrafficController.GameObjects;
-using System.Threading;
+using SpaceTrafficController.Utilities;
+using System;
 
 namespace SpaceTrafficController.Input;
 
@@ -16,6 +12,8 @@ public class InputHandler
 {
     private readonly Camera2D Camera;
     private readonly GameState GameState;
+    private KeyboardState KeyboardState;
+    private MouseState MouseState;
     private KeyboardState PrevKeyboardState;
     private MouseState PrevMouseState;
 
@@ -27,41 +25,43 @@ public class InputHandler
 
     public void Update(GameTime gameTime)
     {
-        var keyboard = Keyboard.GetState();
-        var mouse = Mouse.GetState();
+        KeyboardState = Keyboard.GetState();
+        MouseState = Mouse.GetState();
 
-        HandleCameraMovement(keyboard, mouse, gameTime);
-        HandleCameraZoom(mouse);
-        HandleWarpControl(keyboard);
-        HandleShipSelection(mouse);
+        HandleCameraMovement(gameTime);
+        HandleCameraZoom();
+        HandleWarpControl();
 
-        PrevKeyboardState = Keyboard.GetState();
-        PrevMouseState = Mouse.GetState();
+        // left click
+        HandleLeftClick();
+
+        PrevKeyboardState = KeyboardState;
+        PrevMouseState = MouseState;
     }
 
-    private void HandleCameraMovement(KeyboardState keyboard, MouseState mouse, GameTime gameTime)
+    private void HandleCameraMovement(GameTime gameTime)
     {
         float dt = (float)gameTime.ElapsedGameTime.TotalSeconds;
         float moveSpeed = 1000f * dt / Camera.Zoom;
 
         Vector2 move = Vector2.Zero;
 
-        if (mouse.MiddleButton == ButtonState.Pressed)
+        if (MouseState.MiddleButton == ButtonState.Pressed)
         {
-            move += Vector2.Subtract(PrevMouseState.Position.ToVector2(), mouse.Position.ToVector2());
+            move += Vector2.Subtract(PrevMouseState.Position.ToVector2(), MouseState.Position.ToVector2());
         }
 
-        if (keyboard.IsKeyDown(Keys.W) || keyboard.IsKeyDown(Keys.Up)) move.Y -= moveSpeed;
-        if (keyboard.IsKeyDown(Keys.S) || keyboard.IsKeyDown(Keys.Down)) move.Y += moveSpeed;
-        if (keyboard.IsKeyDown(Keys.A) || keyboard.IsKeyDown(Keys.Left)) move.X -= moveSpeed;
-        if (keyboard.IsKeyDown(Keys.D) || keyboard.IsKeyDown(Keys.Right)) move.X += moveSpeed;
+        if (KeyboardState.IsKeyDown(Keys.W) || KeyboardState.IsKeyDown(Keys.Up)) move.Y -= moveSpeed;
+        if (KeyboardState.IsKeyDown(Keys.S) || KeyboardState.IsKeyDown(Keys.Down)) move.Y += moveSpeed;
+        if (KeyboardState.IsKeyDown(Keys.A) || KeyboardState.IsKeyDown(Keys.Left)) move.X -= moveSpeed;
+        if (KeyboardState.IsKeyDown(Keys.D) || KeyboardState.IsKeyDown(Keys.Right)) move.X += moveSpeed;
 
         Camera.Move(move);
     }
 
-    private void HandleCameraZoom(MouseState mouse)
+    private void HandleCameraZoom()
     {
-        int scrollDelta = mouse.ScrollWheelValue - PrevMouseState.ScrollWheelValue;
+        int scrollDelta = MouseState.ScrollWheelValue - PrevMouseState.ScrollWheelValue;
 
         if (scrollDelta != 0)
         {
@@ -70,33 +70,47 @@ public class InputHandler
         }
     }
 
-    private void HandleWarpControl(KeyboardState keyboard)
+    private void HandleWarpControl()
     {
-        if (keyboard.IsKeyDown(Keys.OemComma) && PrevKeyboardState.IsKeyUp(Keys.OemComma))
+        if (KeyboardState.IsKeyDown(Keys.OemComma) && PrevKeyboardState.IsKeyUp(Keys.OemComma))
         {
             GameState.DecreaseWarp();
         }
 
-        if (keyboard.IsKeyDown(Keys.OemPeriod) && PrevKeyboardState.IsKeyUp(Keys.OemPeriod))
+        if (KeyboardState.IsKeyDown(Keys.OemPeriod) && PrevKeyboardState.IsKeyUp(Keys.OemPeriod))
         {
             GameState.IncreaseWarp();
         }
     }
 
-    private void HandleShipSelection(MouseState mouse)
+    private void HandleLeftClick()
     {
-        if (mouse.LeftButton == ButtonState.Pressed && PrevMouseState.LeftButton == ButtonState.Released)
+        if (MouseState.LeftButton == ButtonState.Pressed && PrevMouseState.LeftButton == ButtonState.Released)
         {
-            Vector2 mouseWorldPos = GetMouseWorldPosition(mouse);
+            Vector2 mousePos = GetMouseWorldPosition();
 
-            var ships = GameState.Ships.OrderBy(x => Vector2.Distance(mouseWorldPos, x.Position / GameConstants.Scale)).ToList();
+            var selectedShip = GameState.SelectedShip;
+            if (selectedShip is not null)
+            {
+                var orbitPos = OrbitUtils.GetOrbitIntersectionNearMouse(selectedShip.Orbit, mousePos.ToNumerics());
+                if (orbitPos is not null)
+                {
+                    selectedShip.ManeuverNode = new ManeuverNode
+                    {
+                        TrueAnomaly = orbitPos.TrueAnomaly,
+                        Position = orbitPos.WorldPosition,
+                    };
+                    return;
+                }
+            }
 
+            var ships = GameState.Ships.OrderBy(x => Vector2.Distance(mousePos, x.Position / GameConstants.Scale)).ToList();
             float clickRadius = 10f;
             foreach (var ship in ships)
             {
-                if (Vector2.Distance(mouseWorldPos, ship.Position / GameConstants.Scale) < clickRadius && !ship.Status.IsSelected)
+                if (Vector2.Distance(mousePos, ship.Position / GameConstants.Scale) < clickRadius && !ship.Status.IsSelected)
                 {
-                    if (GameState.SelectedShip is not null) 
+                    if (GameState.SelectedShip is not null)
                         GameState.SelectedShip.Status.IsSelected = false;
                     ship.Status.IsSelected = true;
                     GameState.SelectedShip = ship;
@@ -108,9 +122,9 @@ public class InputHandler
         }
     }
 
-    private Vector2 GetMouseWorldPosition(MouseState mouse)
+    private Vector2 GetMouseWorldPosition()
     {
-        var screenPos = mouse.Position.ToVector2();
+        var screenPos = MouseState.Position.ToVector2();
         return Camera.ScreenToWorld(screenPos);
     }
 }

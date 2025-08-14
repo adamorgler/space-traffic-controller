@@ -1,5 +1,6 @@
 ﻿using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
+using Microsoft.Xna.Framework.Input;
 using MonoGame.Extended;
 using SpaceTrafficController.Core;
 using SpaceTrafficController.GameObjects;
@@ -7,10 +8,6 @@ using SpaceTrafficController.Simulation;
 using SpaceTrafficController.Utilities;
 using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Runtime.ExceptionServices;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace SpaceTrafficController.UI;
 
@@ -18,8 +15,11 @@ public class SimulationRenderer
 {
     private readonly SpriteBatch SpriteBatch;
     private readonly Camera2D Camera;
+    private MouseState MouseState;
 
     private const int Scale = GameConstants.Scale;
+
+    private List<string> DebugText = new();
 
     public SimulationRenderer(SpriteBatch spriteBatch, Camera2D camera)
     {
@@ -27,10 +27,17 @@ public class SimulationRenderer
         Camera = camera;
     }
 
-    public void Draw(GameState gameState)
+    public void DrawWorld(GameState gameState)
     {
+        MouseState = Mouse.GetState();
+
         DrawPlanet();
         DrawShips(gameState.Ships);
+    }
+
+    public void DrawScreen(GameState gameState)
+    {
+        DrawDebugText();
     }
 
     private void DrawPlanet()
@@ -46,10 +53,14 @@ public class SimulationRenderer
         {
             Vector2 position = ship.Orbit.PositionVector / Scale;
 
-            // orbit
+            // ship selected
             if (ship.Status.IsSelected)
             {
-                DrawOrbit(ship.Orbit);
+                var orbit = ship.Orbit;
+                DrawOrbit(orbit);
+                DrawOrbitMouseIntersection(orbit);
+                if (ship.ManeuverNode is not null)
+                    DrawManueverNode(ship);
             }
 
             // ship square
@@ -77,5 +88,64 @@ public class SimulationRenderer
             SpriteBatch.DrawLine(start, end, Color.White, 1f / Camera.Zoom);
             start = end;
         };
+    }
+
+    private void DrawOrbitMouseIntersection(Orbit orbit)
+    {
+        var mousePos = Camera.ScreenToWorld(MouseState.Position.ToVector2());
+        var orbitPos = OrbitUtils.GetOrbitIntersectionNearMouse(orbit, mousePos.ToNumerics());
+        if (orbitPos is not null)
+        {
+            CircleF intersectionCircle = new CircleF() { Center = orbitPos.WorldPosition, Radius = 5 };
+            SpriteBatch.DrawCircle(intersectionCircle, 12, Color.LightGray);
+        }
+    }
+
+    private void DrawManueverNode(Ship ship)
+    {
+        var manueverNode = ship.ManeuverNode;
+        var nodeRadius = 12 / Camera.Zoom;
+        CircleF intersectionCircle = new CircleF() { Center = manueverNode.Position, Radius = nodeRadius };
+        SpriteBatch.DrawCircle(intersectionCircle, 12, Color.Gold);
+
+        var mousePos = Camera.ScreenToWorld(MouseState.Position.ToVector2());
+        var threshhold = 10;
+        var offset = 24 / Camera.Zoom;
+        if (Vector2.Distance(mousePos, manueverNode.Position) < threshhold + offset)
+        {
+            var orbit = ship.Orbit;
+            var velocityDir = Vector2.Normalize(orbit.GetVelocityAtAngle(manueverNode.TrueAnomaly));
+            var normalDir = new Vector2(-velocityDir.Y, velocityDir.X);
+
+            var progradeOffset = manueverNode.Position + velocityDir * offset;
+            var retrogradeOffset = manueverNode.Position - velocityDir * offset;
+            var normalOffset = manueverNode.Position + normalDir * offset;
+            var antinormalOffset = manueverNode.Position - normalDir * offset;
+
+            var nodeButtonThickness = 1.5f / Camera.Zoom;
+            var nodeButtonRadius = 8 / Camera.Zoom;
+            var velocityColor = Color.GreenYellow;
+            var normalColor = Color.CornflowerBlue;
+            SpriteBatch.DrawCircle(new CircleF() { Center = progradeOffset, Radius = nodeButtonRadius }, 16, velocityColor, nodeButtonThickness);
+            SpriteBatch.DrawCircle(new CircleF() { Center = retrogradeOffset, Radius = nodeButtonRadius }, 16, velocityColor, nodeButtonThickness);
+            SpriteBatch.DrawCircle(new CircleF() { Center = normalOffset, Radius = nodeButtonRadius }, 16, normalColor, nodeButtonThickness);
+            SpriteBatch.DrawCircle(new CircleF() { Center = antinormalOffset, Radius = nodeButtonRadius }, 16, normalColor, nodeButtonThickness);
+            SpriteBatch.DrawString(Fonts.ManueverNode, "+", progradeOffset, velocityColor);
+            SpriteBatch.DrawString(Fonts.ManueverNode, "-", retrogradeOffset, velocityColor);
+            SpriteBatch.DrawString(Fonts.ManueverNode, "+", normalOffset, normalColor);
+            SpriteBatch.DrawString(Fonts.ManueverNode, "-", antinormalOffset, normalColor);
+        }
+    }
+
+    private void DrawDebugText()
+    {
+        var offset = 0;
+        var offsetStep = 15;
+        foreach(var text in DebugText)
+        {
+            SpriteBatch.DrawString(Fonts.DebugFont, text, new Vector2(10, 10 + offset), Color.White);
+            offset += offsetStep;
+        }
+        DebugText.Clear();
     }
 }

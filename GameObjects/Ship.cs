@@ -18,8 +18,9 @@ public class Ship : HasOrbit
     public string Name { get; set; }
     public ShipState State { get; set; }
     public ShipStatus Status { get; set; } = new();
-
     public Vector2 Position { get { return Orbit.PositionVector; } }
+    public ManeuverNode ManeuverNode { get; set; }
+
 }
 
 public enum ShipState
@@ -33,4 +34,14 @@ public class ShipStatus
 {
     public bool IsSelected { get; set; } = false;
     public bool IsEncroached { get; set; } = false;
+}
+
+public class ManeuverNode
+{
+    public double TrueAnomaly { get; set; }
+    public Vector2 Position { get; set; }
+
+    public float ProgradeDeltaV { get; set; } = 0f;
+    public float RadialDeltaV { get; set; } = 0f;
+    public float NormalDeltaV { get; set; } = 0f;
 }

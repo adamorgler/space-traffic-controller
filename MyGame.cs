@@ -47,6 +47,9 @@ namespace SpaceTrafficController
             SimulationRenderer = new SimulationRenderer(SpriteBatch, Camera);            
             InputHandler = new InputHandler(Camera, GameState);
 
+            Fonts.DebugFont = Content.Load<SpriteFont>("DebugFont");
+            Fonts.ManueverNode = Content.Load<SpriteFont>("ManueverNode");
+
             Test2();
         }
 
@@ -66,7 +69,11 @@ namespace SpaceTrafficController
             GraphicsDevice.Clear(Color.Black);
 
             SpriteBatch.Begin(transformMatrix: Camera.GetTransform());
-            SimulationRenderer.Draw(GameState);
+            SimulationRenderer.DrawWorld(GameState);
+            SpriteBatch.End();
+
+            SpriteBatch.Begin();
+            SimulationRenderer.DrawScreen(GameState);
             SpriteBatch.End();
 
             base.Draw(gameTime);
