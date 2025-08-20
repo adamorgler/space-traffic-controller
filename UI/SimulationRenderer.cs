@@ -57,8 +57,9 @@ public class SimulationRenderer
             if (ship.Status.IsSelected)
             {
                 var orbit = ship.Orbit;
-                DrawOrbit(orbit);
-                DrawOrbitMouseIntersection(orbit);
+                DrawOrbit(orbit, Color.White);
+                if (ship.ManeuverNode is null)
+                    DrawOrbitMouseIntersection(orbit);
                 if (ship.ManeuverNode is not null)
                     DrawManueverNode(ship);
             }
@@ -79,13 +80,13 @@ public class SimulationRenderer
 
     }
 
-    private void DrawOrbit(Orbit orbit)
+    private void DrawOrbit(Orbit orbit, Color color)
     {
         var start = orbit.GetPositionAtAngle(0d.ToRadians()) / Scale;
         for (int i = 2; i <= 360; i += 2)
         {
             var end = orbit.GetPositionAtAngle(((double)i).ToRadians()) / Scale;
-            SpriteBatch.DrawLine(start, end, Color.White, 1f / Camera.Zoom);
+            SpriteBatch.DrawLine(start, end, color, 1f / Camera.Zoom);
             start = end;
         };
     }
@@ -96,7 +97,7 @@ public class SimulationRenderer
         var orbitPos = OrbitUtils.GetOrbitIntersectionNearMouse(orbit, mousePos.ToNumerics());
         if (orbitPos is not null)
         {
-            CircleF intersectionCircle = new CircleF() { Center = orbitPos.WorldPosition, Radius = 5 };
+            CircleF intersectionCircle = new CircleF() { Center = orbitPos.ScreenPosition, Radius = 5 };
             SpriteBatch.DrawCircle(intersectionCircle, 12, Color.LightGray);
         }
     }
@@ -104,36 +105,80 @@ public class SimulationRenderer
     private void DrawManueverNode(Ship ship)
     {
         var manueverNode = ship.ManeuverNode;
-        var nodeRadius = 12 / Camera.Zoom;
-        CircleF intersectionCircle = new CircleF() { Center = manueverNode.Position, Radius = nodeRadius };
-        SpriteBatch.DrawCircle(intersectionCircle, 12, Color.Gold);
+
+        if (manueverNode.PredictedOrbit is not null)
+        {
+            DrawOrbit(manueverNode.PredictedOrbit, Color.LightGray);
+
+            DebugText.Add($"Manuever Node: TrueAnomaly: {manueverNode.TrueAnomaly}");
+            DebugText.Add($"Position: {manueverNode.ScreenPosition}, DeltaV:{manueverNode.ProgradeDeltaV} + {manueverNode.NormalDeltaV} ");
+            DebugText.Add($"Orbit: AP: {manueverNode.PredictedOrbit.Apoapsis}, PE: {manueverNode.PredictedOrbit.Periapsis}, V: {manueverNode.PredictedOrbit.Velocity}, P: {manueverNode.PredictedOrbit.PositionVector}");
+        }
+
+        var nodeRadius = UIConstants.NodeRadius / Camera.Zoom;
+        var intersectionCircle = new CircleF() { Center = manueverNode.ScreenPosition, Radius = nodeRadius };
+        var nodeColor = manueverNode.IsConfirmed ? Color.LightGreen : Color.Yellow;
+        var nodeThickness = UIConstants.NodeThickness / Camera.Zoom;
+        SpriteBatch.DrawCircle(intersectionCircle, 12, nodeColor, nodeThickness);
 
         var mousePos = Camera.ScreenToWorld(MouseState.Position.ToVector2());
-        var threshhold = 10;
-        var offset = 24 / Camera.Zoom;
-        if (Vector2.Distance(mousePos, manueverNode.Position) < threshhold + offset)
+        var threshhold = UIConstants.NodeButtonRadius;
+        var offset = UIConstants.NodeButtonOffset / Camera.Zoom;
+        if (Vector2.Distance(mousePos, manueverNode.ScreenPosition) < threshhold + offset + manueverNode.DragOffset.Length() * MathF.Sqrt(2) && !manueverNode.IsDragged)
         {
-            var orbit = ship.Orbit;
-            var velocityDir = Vector2.Normalize(orbit.GetVelocityAtAngle(manueverNode.TrueAnomaly));
-            var normalDir = new Vector2(-velocityDir.Y, velocityDir.X);
+            manueverNode.ButtonOffset = offset;
+            manueverNode.ButtonRadius = UIConstants.NodeButtonRadius / Camera.Zoom;
+            manueverNode.ButtonThickness = UIConstants.NodeButtonThickness / Camera.Zoom;
+            if (manueverNode.DragType is ManeuverDragType.None || manueverNode.DragType == ManeuverDragType.Prograde)
+                DrawButton(manueverNode.ProgradeButton, mousePos);
+            if (manueverNode.DragType is ManeuverDragType.None || manueverNode.DragType == ManeuverDragType.Retrograde)
+                DrawButton(manueverNode.RetrogradeButton, mousePos);
+            if (manueverNode.DragType is ManeuverDragType.None || manueverNode.DragType == ManeuverDragType.Normal)
+                DrawButton(manueverNode.NormalButton, mousePos);
+            if (manueverNode.DragType is ManeuverDragType.None || manueverNode.DragType == ManeuverDragType.Antinormal)
+                DrawButton(manueverNode.AntinormalButton, mousePos);
 
-            var progradeOffset = manueverNode.Position + velocityDir * offset;
-            var retrogradeOffset = manueverNode.Position - velocityDir * offset;
-            var normalOffset = manueverNode.Position + normalDir * offset;
-            var antinormalOffset = manueverNode.Position - normalDir * offset;
+            if (!manueverNode.IsConfirmed )
+            {
+                if (manueverNode.DragType is ManeuverDragType.None)
+                    DrawButton(manueverNode.ConfirmButton, mousePos);
+            }
+            if (manueverNode.DragType is ManeuverDragType.None)
+                DrawButton(manueverNode.CancelButton, mousePos);
+        }
+    }
 
-            var nodeButtonThickness = 1.5f / Camera.Zoom;
-            var nodeButtonRadius = 8 / Camera.Zoom;
-            var velocityColor = Color.GreenYellow;
-            var normalColor = Color.CornflowerBlue;
-            SpriteBatch.DrawCircle(new CircleF() { Center = progradeOffset, Radius = nodeButtonRadius }, 16, velocityColor, nodeButtonThickness);
-            SpriteBatch.DrawCircle(new CircleF() { Center = retrogradeOffset, Radius = nodeButtonRadius }, 16, velocityColor, nodeButtonThickness);
-            SpriteBatch.DrawCircle(new CircleF() { Center = normalOffset, Radius = nodeButtonRadius }, 16, normalColor, nodeButtonThickness);
-            SpriteBatch.DrawCircle(new CircleF() { Center = antinormalOffset, Radius = nodeButtonRadius }, 16, normalColor, nodeButtonThickness);
-            SpriteBatch.DrawString(Fonts.ManueverNode, "+", progradeOffset, velocityColor);
-            SpriteBatch.DrawString(Fonts.ManueverNode, "-", retrogradeOffset, velocityColor);
-            SpriteBatch.DrawString(Fonts.ManueverNode, "+", normalOffset, normalColor);
-            SpriteBatch.DrawString(Fonts.ManueverNode, "-", antinormalOffset, normalColor);
+    private void DrawButton(Button button, Vector2 mousePos)
+    {
+        var pos = button.Position;
+        var radius = button.Radius;
+        var color = button.Color;
+        var thickness = button.Thickness;
+        var hoverOffset = Vector2.Distance(pos, mousePos) < radius ? new Vector2(-1, -1) : new Vector2(0, 0);
+        SpriteBatch.DrawCircle(new CircleF() { Center = pos + hoverOffset, Radius = radius }, 16, color, thickness);
+        DrawButtonLabel(button, mousePos);
+    }
+
+    private void DrawButtonLabel(Button button, Vector2 mousePos)
+    {
+        var pos = button.Position;
+        var radius = button.Radius;
+        var color = button.Color;
+        var thickness = button.Thickness;
+        var hoverOffset = Vector2.Distance(pos, mousePos) < radius ? new Vector2(-1, -1) : new Vector2(0, 0);
+        switch (button.Label)
+        {
+            case ButtonLabel.Plus:
+                SpriteBatch.DrawLine(new Vector2(pos.X, pos.Y + radius / 2) + hoverOffset, new Vector2(pos.X, pos.Y - radius / 2) + hoverOffset, color, thickness);
+                SpriteBatch.DrawLine(new Vector2(pos.X + radius / 2, pos.Y) + hoverOffset, new Vector2(pos.X - radius / 2, pos.Y) + hoverOffset, color, thickness);
+                break;
+            case ButtonLabel.Minus:
+                SpriteBatch.DrawLine(new Vector2(pos.X + radius / 2, pos.Y) + hoverOffset, new Vector2(pos.X - radius / 2, pos.Y) + hoverOffset, color, thickness);
+                break;
+            case ButtonLabel.V:
+                SpriteBatch.DrawLine(new Vector2(pos.X - radius / 2, pos.Y) + hoverOffset, new Vector2(pos.X, pos.Y - radius / 2) + hoverOffset, color, thickness);
+                SpriteBatch.DrawLine(new Vector2(pos.X + radius / 2, pos.Y) + hoverOffset, new Vector2(pos.X, pos.Y - radius / 2) + hoverOffset, color, thickness);
+                break;
         }
     }
 

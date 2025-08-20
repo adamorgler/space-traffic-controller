@@ -70,4 +70,28 @@ public class Orbit
             Y = (float)(Velocity * (Eccentricity + Math.Cos(Angle)) / Math.Sqrt(1 + Math.Pow(Eccentricity, 2) + 2 * Eccentricity * Math.Cos(Angle))),
         }.Rotate(ArgumentOfPeriapsis);
     }
+
+    public double TimeToTrueAomaly(double targetTrueAnomaly)
+    {
+        double mu = PhysicalConstants.G * PhysicalConstants.MassOfPlanet;
+
+        // Mean motion (rad/s)
+        double a = (Apoapsis + Periapsis + 2 * PhysicalConstants.RadiusOfPlanet) / 2.0;
+        double n = Math.Sqrt(mu / Math.Pow(a, 3));
+
+        // Eccentric anomaly (E) from true anomaly
+        double e = (Apoapsis - Periapsis) / (Apoapsis + Periapsis + 2 * PhysicalConstants.RadiusOfPlanet);
+        double E_current = 2 * Math.Atan(Math.Sqrt((1 - e) / (1 + e)) * Math.Tan(TrueAnomaly / 2));
+        double E_target = 2 * Math.Atan(Math.Sqrt((1 - e) / (1 + e)) * Math.Tan(targetTrueAnomaly / 2));
+
+        double M_current = E_current - e * Math.Sin(E_current);
+        double M_target = E_target - e * Math.Sin(E_target);
+
+        double deltaM = M_target - M_current;
+        if (deltaM < 0) deltaM += 2 * Math.PI;
+
+        double deltaT = deltaM / n; // time = mean anomaly / mean motion
+
+        return deltaT;
+    }
 }

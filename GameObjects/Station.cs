@@ -17,4 +17,9 @@ public class Station : HasOrbit
     public string Name { get; set; }
 
     public int NumberOfRunways { get; set; }
+
+    public override void UpdateExtension(double timeStep)
+    {
+        return;
+    }
 }

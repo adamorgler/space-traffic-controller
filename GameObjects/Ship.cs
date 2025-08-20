@@ -1,11 +1,6 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Numerics;
-using System.Text;
-using System.Threading.Tasks;
-using SpaceTrafficController.Simulation;
+﻿using SpaceTrafficController.Simulation;
 using SpaceTrafficController.Simulation.OrbitingObjects;
+using System.Numerics;
 
 namespace SpaceTrafficController.GameObjects;
 
@@ -21,6 +16,20 @@ public class Ship : HasOrbit
     public Vector2 Position { get { return Orbit.PositionVector; } }
     public ManeuverNode ManeuverNode { get; set; }
 
+    public override void UpdateExtension(double gameTime)
+    {
+        CheckIfManueverNodeIsCrossed(gameTime);
+    }
+    private void CheckIfManueverNodeIsCrossed(double gameTime)
+    {
+        if (ManeuverNode is null || !ManeuverNode.IsConfirmed || ManeuverNode.PredictedOrbit is null)
+            return;
+        if (gameTime >= ManeuverNode.NodeTime)
+        {
+            Orbit = ManeuverNode.PredictedOrbit;
+            ManeuverNode = null;
+        }
+    }
 }
 
 public enum ShipState
@@ -34,14 +43,4 @@ public class ShipStatus
 {
     public bool IsSelected { get; set; } = false;
     public bool IsEncroached { get; set; } = false;
-}
-
-public class ManeuverNode
-{
-    public double TrueAnomaly { get; set; }
-    public Vector2 Position { get; set; }
-
-    public float ProgradeDeltaV { get; set; } = 0f;
-    public float RadialDeltaV { get; set; } = 0f;
-    public float NormalDeltaV { get; set; } = 0f;
 }

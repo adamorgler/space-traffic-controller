@@ -5,6 +5,8 @@ using SpaceTrafficController.Core;
 using SpaceTrafficController.GameObjects;
 using SpaceTrafficController.Utilities;
 using System;
+using SpaceTrafficController.UI;
+using System.Xml.Linq;
 
 namespace SpaceTrafficController.Input;
 
@@ -16,6 +18,11 @@ public class InputHandler
     private MouseState MouseState;
     private KeyboardState PrevKeyboardState;
     private MouseState PrevMouseState;
+
+    private ManeuverNode DraggedNode = null;
+
+    private ManeuverDragType CurrentManeuverDrag = ManeuverDragType.None;
+    private Vector2 DragStartMouseWorldPos;
 
     public InputHandler(Camera2D camera, GameState gameState)
     {
@@ -34,6 +41,26 @@ public class InputHandler
 
         // left click
         HandleLeftClick();
+        HandleLeftDrag();
+        HandleManeuverDeltaVDrag();
+
+        if (MouseState.LeftButton == ButtonState.Released && PrevMouseState.LeftButton == ButtonState.Pressed)
+        {
+            var selectedShip = GameState.SelectedShip;
+            var manueverNode = selectedShip?.ManeuverNode ?? null;
+
+            if (DraggedNode is not null)
+            {
+                DraggedNode.IsDragged = false;
+                DraggedNode = null;
+            }
+
+            CurrentManeuverDrag = ManeuverDragType.None;
+            if (manueverNode != null)
+            {
+                manueverNode.DragType = ManeuverDragType.None;
+            }
+        }
 
         PrevKeyboardState = KeyboardState;
         PrevMouseState = MouseState;
@@ -85,20 +112,59 @@ public class InputHandler
 
     private void HandleLeftClick()
     {
+        Vector2 mousePos = GetMouseWorldPosition();
+        var selectedShip = GameState.SelectedShip;
+        var manueverNode = selectedShip?.ManeuverNode ?? null;
         if (MouseState.LeftButton == ButtonState.Pressed && PrevMouseState.LeftButton == ButtonState.Released)
         {
-            Vector2 mousePos = GetMouseWorldPosition();
-
-            var selectedShip = GameState.SelectedShip;
             if (selectedShip is not null)
             {
-                var orbitPos = OrbitUtils.GetOrbitIntersectionNearMouse(selectedShip.Orbit, mousePos.ToNumerics());
-                if (orbitPos is not null)
+                if (manueverNode is not null)
                 {
-                    selectedShip.ManeuverNode = new ManeuverNode
+                    if (Vector2.Distance(mousePos, manueverNode.ProgradeButton.Position) < manueverNode.ProgradeButton.Radius)
+                    {
+                        StartManeuverDrag(ManeuverDragType.Prograde, mousePos);
+                        return;
+                    }
+                    else if (Vector2.Distance(mousePos, manueverNode.RetrogradeButton.Position) < manueverNode.RetrogradeButton.Radius)
+                    {
+                        StartManeuverDrag(ManeuverDragType.Retrograde, mousePos);
+                        return;
+                    }
+                    else if (Vector2.Distance(mousePos, manueverNode.NormalButton.Position) < manueverNode.NormalButton.Radius)
+                    {
+                        StartManeuverDrag(ManeuverDragType.Normal, mousePos);
+                        return;
+                    }
+                    else if (Vector2.Distance(mousePos, manueverNode.AntinormalButton.Position) < manueverNode.AntinormalButton.Radius)
+                    {
+                        StartManeuverDrag(ManeuverDragType.Antinormal, mousePos);
+                        return;
+                    }
+                    else if (Vector2.Distance(mousePos, manueverNode.ConfirmButton.Position) < manueverNode.ConfirmButton.Radius)
+                    {
+                        manueverNode.IsConfirmed = true;
+                        return;
+                    }
+                    else if (Vector2.Distance(mousePos, manueverNode.CancelButton.Position) < manueverNode.CancelButton.Radius)
+                    {
+                        selectedShip.ManeuverNode = null;
+                        return;
+                    }
+                    if (Vector2.Distance(mousePos, manueverNode.ScreenPosition) < UIConstants.NodeRadius)
+                    {
+                        manueverNode.IsDragged = true;
+                        DraggedNode = manueverNode;
+                        return;
+                    }
+                }
+                var orbitPos = OrbitUtils.GetOrbitIntersectionNearMouse(selectedShip.Orbit, mousePos.ToNumerics());
+                if (orbitPos is not null && manueverNode is null)
+                {
+                    selectedShip.ManeuverNode = new ManeuverNode(selectedShip.Orbit)
                     {
                         TrueAnomaly = orbitPos.TrueAnomaly,
-                        Position = orbitPos.WorldPosition,
+                        ScreenPosition = orbitPos.ScreenPosition,
                     };
                     return;
                 }
@@ -119,7 +185,76 @@ public class InputHandler
                 ship.Status.IsSelected = false;
             }
             GameState.SelectedShip = null;
+            if (DraggedNode is not null)
+            {
+                DraggedNode.IsDragged = false;
+                DraggedNode = null;
+            }
         }
+    }
+
+    private void HandleLeftDrag()
+    {
+        if (DraggedNode is not null && MouseState.LeftButton == ButtonState.Pressed)
+        {
+            Vector2 mousePos = GetMouseWorldPosition();
+            var ship = GameState.SelectedShip;
+            if (ship is null || ship.ManeuverNode is null)
+                return;
+
+            var orbitPos = OrbitUtils.GetOrbitIntersectionNearMouse(ship.Orbit, mousePos.ToNumerics(), float.MaxValue);
+            if (orbitPos is not null)
+            {
+                ship.ManeuverNode.TrueAnomaly = orbitPos.TrueAnomaly;
+                ship.ManeuverNode.ScreenPosition = orbitPos.ScreenPosition;
+                ship.ManeuverNode.IsConfirmed = false;
+            }
+        }
+    }
+
+    private void StartManeuverDrag(ManeuverDragType type, Vector2 startWorldPos)
+    {
+        CurrentManeuverDrag = type;
+        DragStartMouseWorldPos = startWorldPos;
+    }
+
+    private void HandleManeuverDeltaVDrag()
+    {
+        var ship = GameState.SelectedShip;
+        var node = ship?.ManeuverNode;
+        if (node == null) return;
+
+        Vector2 currentMouseWorldPos = GetMouseWorldPosition();
+        Vector2 dragVector = currentMouseWorldPos - DragStartMouseWorldPos;
+        node.DragOffset = dragVector.ToNumerics();
+
+        float distanceFromStart = dragVector.Length(); // used to scale sensitivity
+        float baseRate = 100f; // base rate of delta-V change per screen inch-ish
+        float speedMultiplier = MathF.Max(0.2f, distanceFromStart); // prevents zero-speed, tweak as needed
+
+        float delta = Vector2.Dot(dragVector, node.GetDirectionVectorForDrag(CurrentManeuverDrag)) * baseRate * 0.001f * speedMultiplier;
+        if (delta == 0)
+            return;
+
+        switch (CurrentManeuverDrag)
+        {
+            case ManeuverDragType.Prograde:
+                node.ProgradeDeltaV += delta;
+                break;
+            case ManeuverDragType.Retrograde:
+                node.ProgradeDeltaV -= delta;
+                break;
+            case ManeuverDragType.Normal:
+                node.NormalDeltaV += delta;
+                break;
+            case ManeuverDragType.Antinormal:
+                node.NormalDeltaV -= delta;
+                break;
+        }
+        node.DragType = CurrentManeuverDrag;
+
+
+        node.IsConfirmed = false;
     }
 
     private Vector2 GetMouseWorldPosition()

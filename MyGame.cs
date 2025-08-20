@@ -50,7 +50,7 @@ namespace SpaceTrafficController
             Fonts.DebugFont = Content.Load<SpriteFont>("DebugFont");
             Fonts.ManueverNode = Content.Load<SpriteFont>("ManueverNode");
 
-            Test2();
+            Test1();
         }
 
         protected override void Update(GameTime gameTime)

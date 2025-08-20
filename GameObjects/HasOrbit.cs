@@ -18,5 +18,8 @@ public abstract class HasOrbit
     public void Update(double timeStep)
     {
         Orbit.Update(timeStep);
+        UpdateExtension(timeStep);
     }
+
+    public abstract void UpdateExtension(double timeStep);
 }
