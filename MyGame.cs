@@ -94,7 +94,7 @@ namespace SpaceTrafficController
 
         private void Test1()
         {
-            GameState.OrbitingObjects.Add(new Ship(new Orbit(2000000, 100000, 0d.ToRadians(), 180d.ToRadians())));
+            GameState.OrbitingObjects.Add(new Ship(new Orbit(2000000, 100000, 33d.ToRadians(), 180d.ToRadians())));
         }
 
         private void Test2()

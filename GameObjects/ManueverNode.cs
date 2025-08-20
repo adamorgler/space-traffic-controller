@@ -13,7 +13,7 @@ public class ManeuverNode
 
     public ManeuverNode(Orbit orbit)
     {
-        this.Orbit = orbit;
+        Orbit = orbit;
     }
 
     public double TrueAnomaly { get; set; }

@@ -26,7 +26,7 @@ public class Ship : HasOrbit
             return;
         if (gameTime >= ManeuverNode.NodeTime)
         {
-            Orbit = ManeuverNode.PredictedOrbit;
+            this.Orbit = ManeuverNode.PredictedOrbit.Copy();
             ManeuverNode = null;
         }
     }

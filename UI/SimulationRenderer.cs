@@ -62,6 +62,17 @@ public class SimulationRenderer
                     DrawOrbitMouseIntersection(orbit);
                 if (ship.ManeuverNode is not null)
                     DrawManueverNode(ship);
+
+                DebugText.Add($"Ship: Position: {ship.Position}");
+                DebugText.Add($"Orbit: TrueAnomaly: {ship.Orbit.TrueAnomaly}");
+
+                var manueverNode = ship.ManeuverNode;
+                if (manueverNode is not null)
+                {
+                    DebugText.Add($"Manuever Node: TrueAnomaly: {manueverNode.TrueAnomaly} Position: {manueverNode.ScreenPosition}, DeltaV:{manueverNode.ProgradeDeltaV} + {manueverNode.NormalDeltaV} ");
+                    if (manueverNode.PredictedOrbit is not null)
+                        DebugText.Add($"PredOrbit: AP: {manueverNode.PredictedOrbit.Apoapsis}, PE: {manueverNode.PredictedOrbit.Periapsis}, V: {manueverNode.PredictedOrbit.Velocity}, P: {manueverNode.PredictedOrbit.PositionVector}");
+                }
             }
 
             // ship square
@@ -109,10 +120,6 @@ public class SimulationRenderer
         if (manueverNode.PredictedOrbit is not null)
         {
             DrawOrbit(manueverNode.PredictedOrbit, Color.LightGray);
-
-            DebugText.Add($"Manuever Node: TrueAnomaly: {manueverNode.TrueAnomaly}");
-            DebugText.Add($"Position: {manueverNode.ScreenPosition}, DeltaV:{manueverNode.ProgradeDeltaV} + {manueverNode.NormalDeltaV} ");
-            DebugText.Add($"Orbit: AP: {manueverNode.PredictedOrbit.Apoapsis}, PE: {manueverNode.PredictedOrbit.Periapsis}, V: {manueverNode.PredictedOrbit.Velocity}, P: {manueverNode.PredictedOrbit.PositionVector}");
         }
 
         var nodeRadius = UIConstants.NodeRadius / Camera.Zoom;

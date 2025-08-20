@@ -44,7 +44,8 @@ public class Orbit
     public void Update(double timeStep)
     {
         TrueAnomaly += GetTrueAnomalyDelta(timeStep);
-        if (TrueAnomaly > 2 * Math.PI) TrueAnomaly -= 2 * Math.PI;
+        if (TrueAnomaly < 0) TrueAnomaly += 2 * Math.PI;
+        if (TrueAnomaly >= 2 * Math.PI) TrueAnomaly -= 2 * Math.PI;
     }
 
     public double GetTrueAnomalyDelta(double timeStep)
@@ -93,5 +94,10 @@ public class Orbit
         double deltaT = deltaM / n; // time = mean anomaly / mean motion
 
         return deltaT;
+    }
+
+    public Orbit Copy()
+    {
+        return new Orbit(this.Apoapsis, this.Periapsis, this.ArgumentOfPeriapsis, this.TrueAnomaly);
     }
 }
