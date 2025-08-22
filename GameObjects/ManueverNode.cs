@@ -9,38 +9,35 @@ namespace SpaceTrafficController.GameObjects;
 
 public class ManeuverNode
 {
-    Orbit Orbit { get; set; }
 
-    public ManeuverNode(Orbit orbit)
-    {
-        Orbit = orbit;
-    }
-
-    public double TrueAnomaly { get; set; }
+    public float TrueAnomaly { get; set; }
     public Vector2 ScreenPosition { get; set; }
 
     public float ProgradeDeltaV { get; set; } = 0f;
     public float NormalDeltaV { get; set; } = 0f;
-    public double NodeTime { get => Orbit.TimeToTrueAomaly(TrueAnomaly); }
     public bool IsConfirmed { get; set; } = false;
     public bool IsDragged { get; set; } = false;
-    public Orbit PredictedOrbit
+
+    public Orbit GetPredictedOrbit(Orbit orbit)
     {
-        get
-        {
-            if (ProgradeDeltaV == 0 && NormalDeltaV == 0)
-                return null;
-            var velocity = Orbit.GetVelocityAtAngle(TrueAnomaly);
-            var position = Orbit.GetPositionAtAngle(TrueAnomaly);
+        if (ProgradeDeltaV == 0 && NormalDeltaV == 0)
+            return null;
 
-            var prograde = Vector2.Normalize(velocity);
-            var normal = new Vector2(-prograde.Y, prograde.X);
+        var velocity = orbit.GetVelocityAtAngle(TrueAnomaly);
+        var position = orbit.GetPositionAtAngle(TrueAnomaly);
 
-            var deltaV = prograde * ProgradeDeltaV + normal * NormalDeltaV;
-            var newVelocity = velocity + deltaV;
+        var prograde = Vector2.Normalize(velocity);
+        var normal = new Vector2(-prograde.Y, prograde.X);
 
-            return OrbitUtils.GetOrbitFromStateVectors(position, newVelocity);
-        }
+        var deltaV = prograde * ProgradeDeltaV + normal * NormalDeltaV;
+        var newVelocity = velocity + deltaV;
+
+        return OrbitUtils.GetOrbitFromStateVectors(position, newVelocity);
+    }
+
+    public float GetTimeToNode(Orbit orbit)
+    {
+        return orbit.TimeToTrueAomaly(TrueAnomaly);
     }
 
     public float ButtonOffset { get; set; } = 1;
@@ -48,7 +45,7 @@ public class ManeuverNode
     public float ButtonRadius { get; set; } = 1;
     public Vector2 DragOffset { get; set; } = new Vector2(0, 0);
     public ManeuverDragType DragType { get; set; }
-    public Vector2 VelocityDir { get => Vector2.Normalize(Orbit.GetVelocityAtAngle(TrueAnomaly)); }
+    public Vector2 VelocityDir { get; set; } = new Vector2(0, 0);
     public Vector2 NormalDir { get => new Vector2(-VelocityDir.Y, VelocityDir.X); }
 
     public Button ProgradeButton 

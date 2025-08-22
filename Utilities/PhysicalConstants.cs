@@ -9,14 +9,14 @@ namespace SpaceTrafficController.Utilities;
 public static class PhysicalConstants
 {
     // EARTH
-    private const double MASS_EARTH = 5.98e24; // mass of Earth in kg
-    private const double RADIUS_EARTH = 6.371e6; // radius of Earth in meters
-    private const double EARTH_ATMOSPHERE = 100e3; // earth atmosphere height in meters
+    private const float MASS_EARTH = 5.98e24f; // mass of Earth in kg
+    private const float RADIUS_EARTH = 6.371e6f; // radius of Earth in meters
+    private const float EARTH_ATMOSPHERE = 100e3f; // earth atmosphere height in meters
     private const int EARTH_DAY_LENGTH = 86400; // number of seconds in each day
 
     // physics constants
-    public const double G = 6.673e-11; // gravitational constant
+    public const float G = 6.673e-11f; // gravitational constant
 
-    public static double RadiusOfPlanet { get { return RADIUS_EARTH; } }
-    public static double MassOfPlanet { get { return MASS_EARTH; } }
+    public static float RadiusOfPlanet { get { return RADIUS_EARTH; } }
+    public static float MassOfPlanet { get { return MASS_EARTH; } }
 }

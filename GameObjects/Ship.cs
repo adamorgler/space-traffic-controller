@@ -16,17 +16,20 @@ public class Ship : HasOrbit
     public Vector2 Position { get { return Orbit.PositionVector; } }
     public ManeuverNode ManeuverNode { get; set; }
 
-    public override void UpdateExtension(double gameTime)
+    public override void UpdateExtension(float gameTime)
     {
         CheckIfManueverNodeIsCrossed(gameTime);
     }
-    private void CheckIfManueverNodeIsCrossed(double gameTime)
+    private void CheckIfManueverNodeIsCrossed(float gameTime)
     {
-        if (ManeuverNode is null || !ManeuverNode.IsConfirmed || ManeuverNode.PredictedOrbit is null)
+        if (ManeuverNode is null || !ManeuverNode.IsConfirmed)
             return;
-        if (gameTime >= ManeuverNode.NodeTime)
+        var predictedOrbit = ManeuverNode.GetPredictedOrbit(Orbit);
+        if (predictedOrbit is null)
+            return;
+        if (gameTime >= ManeuverNode.GetTimeToNode(Orbit))
         {
-            this.Orbit = ManeuverNode.PredictedOrbit.Copy();
+            Orbit = predictedOrbit;
             ManeuverNode = null;
         }
     }

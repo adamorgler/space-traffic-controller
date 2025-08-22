@@ -64,14 +64,15 @@ public class SimulationRenderer
                     DrawManueverNode(ship);
 
                 DebugText.Add($"Ship: Position: {ship.Position}");
-                DebugText.Add($"Orbit: TrueAnomaly: {ship.Orbit.TrueAnomaly}");
+                DebugText.Add($"Orbit: AP: {ship.Orbit.Apoapsis}, PE: {ship.Orbit.Periapsis}, TrueAnomaly: {ship.Orbit.TrueAnomaly}");
 
                 var manueverNode = ship.ManeuverNode;
                 if (manueverNode is not null)
                 {
                     DebugText.Add($"Manuever Node: TrueAnomaly: {manueverNode.TrueAnomaly} Position: {manueverNode.ScreenPosition}, DeltaV:{manueverNode.ProgradeDeltaV} + {manueverNode.NormalDeltaV} ");
-                    if (manueverNode.PredictedOrbit is not null)
-                        DebugText.Add($"PredOrbit: AP: {manueverNode.PredictedOrbit.Apoapsis}, PE: {manueverNode.PredictedOrbit.Periapsis}, V: {manueverNode.PredictedOrbit.Velocity}, P: {manueverNode.PredictedOrbit.PositionVector}");
+                    var predictedOrbit = manueverNode.GetPredictedOrbit(orbit);
+                    if (predictedOrbit is not null)
+                        DebugText.Add($"PredOrbit: AP: {predictedOrbit.Apoapsis}, PE: {predictedOrbit.Periapsis}, V: {predictedOrbit.Velocity}, P: {predictedOrbit.PositionVector}");
                 }
             }
 
@@ -93,10 +94,10 @@ public class SimulationRenderer
 
     private void DrawOrbit(Orbit orbit, Color color)
     {
-        var start = orbit.GetPositionAtAngle(0d.ToRadians()) / Scale;
+        var start = orbit.GetPositionAtAngle(0f.ToRadians()) / Scale;
         for (int i = 2; i <= 360; i += 2)
         {
-            var end = orbit.GetPositionAtAngle(((double)i).ToRadians()) / Scale;
+            var end = orbit.GetPositionAtAngle(((float)i).ToRadians()) / Scale;
             SpriteBatch.DrawLine(start, end, color, 1f / Camera.Zoom);
             start = end;
         };
@@ -117,9 +118,10 @@ public class SimulationRenderer
     {
         var manueverNode = ship.ManeuverNode;
 
-        if (manueverNode.PredictedOrbit is not null)
+        var predictedOrbit = manueverNode.GetPredictedOrbit(ship.Orbit);
+        if (predictedOrbit is not null)
         {
-            DrawOrbit(manueverNode.PredictedOrbit, Color.LightGray);
+            DrawOrbit(predictedOrbit, Color.LightGray);
         }
 
         var nodeRadius = UIConstants.NodeRadius / Camera.Zoom;
@@ -136,6 +138,7 @@ public class SimulationRenderer
             manueverNode.ButtonOffset = offset;
             manueverNode.ButtonRadius = UIConstants.NodeButtonRadius / Camera.Zoom;
             manueverNode.ButtonThickness = UIConstants.NodeButtonThickness / Camera.Zoom;
+            manueverNode.VelocityDir = Vector2.Normalize(ship.Orbit.GetVelocityAtAngle(manueverNode.TrueAnomaly)).ToNumerics();
             if (manueverNode.DragType is ManeuverDragType.None || manueverNode.DragType == ManeuverDragType.Prograde)
                 DrawButton(manueverNode.ProgradeButton, mousePos);
             if (manueverNode.DragType is ManeuverDragType.None || manueverNode.DragType == ManeuverDragType.Retrograde)

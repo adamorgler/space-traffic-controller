@@ -22,7 +22,7 @@ public class GameState
 
     public void Update(GameTime gameTime)
     {
-        var timeStep = gameTime.ElapsedGameTime.TotalSeconds * Warp;
+        var timeStep = ((float)gameTime.ElapsedGameTime.TotalSeconds) * Warp;
 
         foreach (var orbiter in OrbitingObjects)
         {

@@ -10,7 +10,7 @@ namespace SpaceTrafficController.Simulation;
 
 public class Orbit
 {
-    public Orbit(double apoapsis, double periapsis, double argumentOfPeriapsis, double trueAnomaly)
+    public Orbit(float apoapsis, float periapsis, float argumentOfPeriapsis, float trueAnomaly)
     {
         if (apoapsis >= periapsis)
         {
@@ -26,78 +26,82 @@ public class Orbit
         TrueAnomaly = trueAnomaly;
     }
 
-    public double Apoapsis { get; init; }
-    public double Periapsis { get; init; }
-    public double ArgumentOfPeriapsis { get; set; } // angle of ellipse in radians
-    public double TrueAnomaly { get; set; } // position in orbit in radians
+    public float Apoapsis { get; init; }
+    public float Periapsis { get; init; }
+    public float ArgumentOfPeriapsis { get; set; } // angle of ellipse in radians
+    public float TrueAnomaly { get; set; } // position in orbit in radians
 
-    public double Apogee { get { return Apoapsis + PhysicalConstants.RadiusOfPlanet; } }
-    public double Perigee { get { return Periapsis + PhysicalConstants.RadiusOfPlanet; } }
-    public double SemiMajorAxis { get { return (Apogee + Perigee) / 2; } }
-    public double SemiMinorAxis { get { return Math.Sqrt(Apogee * Perigee); } }
-    public double Eccentricity { get { return Math.Sqrt(1 - (Math.Pow(SemiMinorAxis, 2) / Math.Pow(SemiMajorAxis, 2))); } }
-    public double RadiusFromFoci { get { return GetRadiusFromFoci(TrueAnomaly); } }
+    public float Apogee { get { return Apoapsis + PhysicalConstants.RadiusOfPlanet; } }
+    public float Perigee { get { return Periapsis + PhysicalConstants.RadiusOfPlanet; } }
+    public float SemiMajorAxis { get { return (Apogee + Perigee) / 2; } }
+    public float SemiMinorAxis { get { return MathF.Sqrt(Apogee * Perigee); } }
+    public float Eccentricity { get { return MathF.Sqrt(1 - (MathF.Pow(SemiMinorAxis, 2) / MathF.Pow(SemiMajorAxis, 2))); } }
+    public float RadiusFromFoci { get { return GetRadiusFromFoci(TrueAnomaly); } }
     public Vector2 PositionVector { get { return GetPositionAtAngle(TrueAnomaly); } }
     public Vector2 VelocityVector { get { return GetVelocityAtAngle(TrueAnomaly); } }
-    public double Velocity { get { return Math.Sqrt(PhysicalConstants.G * PhysicalConstants.MassOfPlanet * ((2 / RadiusFromFoci) - (1 / SemiMajorAxis))); } }
+    public float Velocity { get { return GetVelocityMagnitudeAtAngle(TrueAnomaly); } }
 
-    public void Update(double timeStep)
+    public void Update(float timeStep)
     {
         TrueAnomaly += GetTrueAnomalyDelta(timeStep);
-        if (TrueAnomaly < 0) TrueAnomaly += 2 * Math.PI;
-        if (TrueAnomaly >= 2 * Math.PI) TrueAnomaly -= 2 * Math.PI;
+        if (TrueAnomaly < 0) TrueAnomaly += 2 * MathF.PI;
+        if (TrueAnomaly >= 2 * MathF.PI) TrueAnomaly -= 2 * MathF.PI;
     }
 
-    public double GetTrueAnomalyDelta(double timeStep)
+    public float GetTrueAnomalyDelta(float timeStep)
     {
-        return (SemiMajorAxis * SemiMinorAxis * (1 / Math.Sqrt(Math.Pow(SemiMajorAxis, 3) / (PhysicalConstants.G * PhysicalConstants.MassOfPlanet))) * timeStep) / Math.Pow(RadiusFromFoci, 2);
+        return (SemiMajorAxis * SemiMinorAxis * (1 / MathF.Sqrt(MathF.Pow(SemiMajorAxis, 3) / (PhysicalConstants.G * PhysicalConstants.MassOfPlanet))) * timeStep) / MathF.Pow(RadiusFromFoci, 2);
     }
 
-    public double GetRadiusFromFoci(double Angle)
+    public float GetRadiusFromFoci(float Angle)
     {
-        return (SemiMajorAxis * (1 - Math.Pow(Eccentricity, 2))) / (1 + Eccentricity * Math.Cos(Angle));
+        return (SemiMajorAxis * (1 - MathF.Pow(Eccentricity, 2))) / (1 + Eccentricity * MathF.Cos(Angle));
     }
 
-    public Vector2 GetPositionAtAngle(double Angle)
+    public Vector2 GetPositionAtAngle(float Angle)
     {
         return MathUtils.PolarToCartesian(Angle, GetRadiusFromFoci(Angle)).Rotate(ArgumentOfPeriapsis);
     }
 
-    public Vector2 GetVelocityAtAngle(double Angle)
+    public Vector2 GetVelocityAtAngle(float angle)
     {
-        return new Vector2
-        {
-            X = (float)(Velocity * (0 -Math.Sin(Angle)) / Math.Sqrt(1 + Math.Pow(Eccentricity, 2) + 2 * Eccentricity * Math.Cos(Angle))),
-            Y = (float)(Velocity * (Eccentricity + Math.Cos(Angle)) / Math.Sqrt(1 + Math.Pow(Eccentricity, 2) + 2 * Eccentricity * Math.Cos(Angle))),
-        }.Rotate(ArgumentOfPeriapsis);
+        float v = GetVelocityMagnitudeAtAngle(angle);
+        float denom = MathF.Sqrt(1 + Eccentricity * Eccentricity + 2 * Eccentricity * MathF.Cos(angle));
+
+        float vx_orb = v * (-MathF.Sin(angle)) / denom;
+        float vy_orb = v * (Eccentricity + MathF.Cos(angle)) / denom;
+
+        return new Vector2(vx_orb, vy_orb).Rotate(ArgumentOfPeriapsis);
     }
 
-    public double TimeToTrueAomaly(double targetTrueAnomaly)
+
+    public float GetVelocityMagnitudeAtAngle(float angle)
     {
-        double mu = PhysicalConstants.G * PhysicalConstants.MassOfPlanet;
+        float r = GetRadiusFromFoci(angle);
+        return MathF.Sqrt(PhysicalConstants.G * PhysicalConstants.MassOfPlanet * ((2 / r) - (1 / SemiMajorAxis)));
+    }
+
+    public float TimeToTrueAomaly(float targetTrueAnomaly)
+    {
+        float mu = PhysicalConstants.G * PhysicalConstants.MassOfPlanet;
 
         // Mean motion (rad/s)
-        double a = (Apoapsis + Periapsis + 2 * PhysicalConstants.RadiusOfPlanet) / 2.0;
-        double n = Math.Sqrt(mu / Math.Pow(a, 3));
+        float a = (Apoapsis + Periapsis + 2 * PhysicalConstants.RadiusOfPlanet) / 2;
+        float n = MathF.Sqrt(mu / MathF.Pow(a, 3));
 
         // Eccentric anomaly (E) from true anomaly
-        double e = (Apoapsis - Periapsis) / (Apoapsis + Periapsis + 2 * PhysicalConstants.RadiusOfPlanet);
-        double E_current = 2 * Math.Atan(Math.Sqrt((1 - e) / (1 + e)) * Math.Tan(TrueAnomaly / 2));
-        double E_target = 2 * Math.Atan(Math.Sqrt((1 - e) / (1 + e)) * Math.Tan(targetTrueAnomaly / 2));
+        float e = (Apoapsis - Periapsis) / (Apoapsis + Periapsis + 2 * PhysicalConstants.RadiusOfPlanet);
+        float E_current = 2 * MathF.Atan(MathF.Sqrt((1 - e) / (1 + e)) * MathF.Tan(TrueAnomaly / 2));
+        float E_target = 2 * MathF.Atan(MathF.Sqrt((1 - e) / (1 + e)) * MathF.Tan(targetTrueAnomaly / 2));
 
-        double M_current = E_current - e * Math.Sin(E_current);
-        double M_target = E_target - e * Math.Sin(E_target);
+        float M_current = E_current - e * MathF.Sin(E_current);
+        float M_target = E_target - e * MathF.Sin(E_target);
 
-        double deltaM = M_target - M_current;
-        if (deltaM < 0) deltaM += 2 * Math.PI;
+        float deltaM = M_target - M_current;
+        if (deltaM < 0) deltaM += 2 * MathF.PI;
 
-        double deltaT = deltaM / n; // time = mean anomaly / mean motion
+        float deltaT = deltaM / n; // time = mean anomaly / mean motion
 
         return deltaT;
-    }
-
-    public Orbit Copy()
-    {
-        return new Orbit(this.Apoapsis, this.Periapsis, this.ArgumentOfPeriapsis, this.TrueAnomaly);
     }
 }

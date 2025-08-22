@@ -161,7 +161,7 @@ public class InputHandler
                 var orbitPos = OrbitUtils.GetOrbitIntersectionNearMouse(selectedShip.Orbit, mousePos.ToNumerics());
                 if (orbitPos is not null && manueverNode is null)
                 {
-                    selectedShip.ManeuverNode = new ManeuverNode(selectedShip.Orbit)
+                    selectedShip.ManeuverNode = new ManeuverNode()
                     {
                         TrueAnomaly = orbitPos.TrueAnomaly,
                         ScreenPosition = orbitPos.ScreenPosition,

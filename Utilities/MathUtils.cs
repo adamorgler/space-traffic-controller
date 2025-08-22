@@ -9,22 +9,22 @@ namespace SpaceTrafficController.Utilities;
 
 public static class MathUtils
 {
-    public static Vector2 PolarToCartesian(double angle, double radius)
+    public static Vector2 PolarToCartesian(float angle, float radius)
     {
         return new Vector2()
         {
-            X = (float) (radius * Math.Cos(angle)),
-            Y = (float) (radius * Math.Sin(angle)),
+            X = radius * MathF.Cos(angle),
+            Y = radius * MathF.Sin(angle),
         };
     }
 
-    public static Vector2 Rotate(this Vector2 v, double radians)
+    public static Vector2 Rotate(this Vector2 v, float radians)
     {
-        double cos = Math.Cos(radians);
-        double sin = Math.Sin(radians);
+        float cos = MathF.Cos(radians);
+        float sin = MathF.Sin(radians);
         return new Vector2(
-            (float) (v.X * cos - v.Y * sin),
-            (float) (v.X * sin + v.Y * cos)
+            v.X * cos - v.Y * sin,
+            v.X * sin + v.Y * cos
         );
     }
 }
