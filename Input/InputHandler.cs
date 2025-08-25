@@ -170,11 +170,11 @@ public class InputHandler
                 }
             }
 
-            var ships = GameState.Ships.OrderBy(x => Vector2.Distance(mousePos, x.Position / GameConstants.Scale)).ToList();
+            var ships = GameState.Ships.OrderBy(x => Vector2.Distance(mousePos, x.Position / GameConstants.RenderingScale)).ToList();
             float clickRadius = 10f;
             foreach (var ship in ships)
             {
-                if (Vector2.Distance(mousePos, ship.Position / GameConstants.Scale) < clickRadius && !ship.Status.IsSelected)
+                if (Vector2.Distance(mousePos, ship.Position / GameConstants.RenderingScale) < clickRadius && !ship.Status.IsSelected)
                 {
                     if (GameState.SelectedShip is not null)
                         GameState.SelectedShip.Status.IsSelected = false;

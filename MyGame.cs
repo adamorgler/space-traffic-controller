@@ -44,7 +44,7 @@ namespace SpaceTrafficController
         {
             Camera = new Camera2D(GraphicsDevice);
             SpriteBatch = new SpriteBatch(GraphicsDevice);
-            SimulationRenderer = new SimulationRenderer(SpriteBatch, Camera);            
+            SimulationRenderer = new SimulationRenderer(GraphicsDevice ,SpriteBatch, Camera);            
             InputHandler = new InputHandler(Camera, GameState);
 
             Fonts.DebugFont = Content.Load<SpriteFont>("DebugFont");
@@ -94,13 +94,14 @@ namespace SpaceTrafficController
 
         private void Test1()
         {
-            GameState.OrbitingObjects.Add(new Ship(new Orbit(2000000, 100000, 33f.ToRadians(), 180f.ToRadians())));
+            GameState.OrbitingObjects.Add(new Ship(new Orbit(600000, 600000, 180f.ToRadians(), 0f.ToRadians())));
+            GameState.OrbitingObjects.Add(new Station(new Orbit(600000, 600000, 190f.ToRadians(), 0f.ToRadians())));
         }
 
         private void Test2()
         {
-            int minOrbit = 100000;
-            int maxOrbit = 10000000;
+            int minOrbit = 500000;
+            int maxOrbit = 5000000;
             Random r = new Random();
             for (int i = 0; i < 1000; i++)
             {

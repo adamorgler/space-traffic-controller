@@ -1,6 +1,7 @@
 ﻿using Microsoft.Xna.Framework;
 using SpaceTrafficController.GameObjects;
 using SpaceTrafficController.Simulation.OrbitingObjects;
+using SpaceTrafficController.Utilities;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -10,13 +11,22 @@ namespace SpaceTrafficController.Core;
 
 public class GameState
 {
+    public static CelestialBody CentralBody { get; set; }
     public List<HasOrbit> OrbitingObjects { get; set; }
     public List<Ship> Ships { get { return OrbitingObjects.OfType<Ship>().ToList(); } }
-    public List<Station> Stations { get { return Stations.OfType<Station>().ToList(); } }
+    public List<Station> Stations { get { return OrbitingObjects.OfType<Station>().ToList(); } }
     public Ship SelectedShip { get; set; }
 
     public void Init()
     {
+        CentralBody = new CelestialBody()
+        {
+            Name = "TITAN",
+            Radius = PhysicalConstants.RADIUS_TITAN,
+            Mass = PhysicalConstants.MASS_TITAN,
+            BaseAtmosphereDensity = PhysicalConstants.ATMOS_BASE_DENSITY_TITAN,
+            AtmosphereLayers = GenerateAtmosphereLayers()
+        };
         OrbitingObjects = new List<HasOrbit>();
     }
 
@@ -45,6 +55,9 @@ public class GameState
                 5 => 16,
                 6 => 32,
                 7 => 64,
+                8 => 128,
+                9 => 256,
+                10 => 512,
                 _ => 1
             };
         }
@@ -52,12 +65,12 @@ public class GameState
 
     public void IncreaseWarp()
     {
-        WarpState = Math.Clamp(WarpState + 1, 1, 7);
+        WarpState = Math.Clamp(WarpState + 1, 1, 10);
     }
 
     public void DecreaseWarp()
     {
-        WarpState = Math.Clamp(WarpState - 1, 1, 7);
+        WarpState = Math.Clamp(WarpState - 1, 1, 10);
     }
 
     public void CheckShipSeperation()
@@ -111,5 +124,36 @@ public class GameState
                 }
             }
         }
+    }
+
+    private static List<AtmosphereLayer> GenerateAtmosphereLayers()
+    {
+        const int layerCount = 5;
+        const float topOfAtmosphere = PhysicalConstants.ATMOS_THICKNESS_TITAN;
+        const float baseDensity = PhysicalConstants.ATMOS_BASE_DENSITY_TITAN; // kg/m³ at surface
+        const float basePressure = PhysicalConstants.ATMOS_BASE_PRESSURE_TITAN; // Pascals at surface
+
+        List<AtmosphereLayer> layers = new();
+
+        var layerThickness = topOfAtmosphere / layerCount;
+        for (int i = 0; i < layerCount; i++)
+        {
+            float layerAltitude = layerThickness * i;
+            float normalizedAltitude = layerAltitude / topOfAtmosphere;
+
+            // Simplified exponential density and pressure decay
+            float density = baseDensity * MathF.Exp(-normalizedAltitude);
+            float pressure = basePressure * MathF.Exp(-normalizedAltitude);
+
+            layers.Add(new AtmosphereLayer
+            {
+                Altitude = layerAltitude,
+                Density = density,
+                Pressure = pressure,
+                Thickness = layerThickness,
+            });
+        }
+
+        return layers;
     }
 }

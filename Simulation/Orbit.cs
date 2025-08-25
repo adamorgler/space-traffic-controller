@@ -4,6 +4,7 @@ using System.Linq;
 using System.Numerics;
 using System.Text;
 using System.Threading.Tasks;
+using SpaceTrafficController.Core;
 using SpaceTrafficController.Utilities;
 
 namespace SpaceTrafficController.Simulation;
@@ -31,8 +32,8 @@ public class Orbit
     public float ArgumentOfPeriapsis { get; set; } // angle of ellipse in radians
     public float TrueAnomaly { get; set; } // position in orbit in radians
 
-    public float Apogee { get { return Apoapsis + PhysicalConstants.RadiusOfPlanet; } }
-    public float Perigee { get { return Periapsis + PhysicalConstants.RadiusOfPlanet; } }
+    public float Apogee { get { return Apoapsis + GameState.CentralBody.Radius; } }
+    public float Perigee { get { return Periapsis + GameState.CentralBody.Radius; } }
     public float SemiMajorAxis { get { return (Apogee + Perigee) / 2; } }
     public float SemiMinorAxis { get { return MathF.Sqrt(Apogee * Perigee); } }
     public float Eccentricity { get { return MathF.Sqrt(1 - (MathF.Pow(SemiMinorAxis, 2) / MathF.Pow(SemiMajorAxis, 2))); } }
@@ -50,7 +51,7 @@ public class Orbit
 
     public float GetTrueAnomalyDelta(float timeStep)
     {
-        return (SemiMajorAxis * SemiMinorAxis * (1 / MathF.Sqrt(MathF.Pow(SemiMajorAxis, 3) / (PhysicalConstants.G * PhysicalConstants.MassOfPlanet))) * timeStep) / MathF.Pow(RadiusFromFoci, 2);
+        return (SemiMajorAxis * SemiMinorAxis * (1 / MathF.Sqrt(MathF.Pow(SemiMajorAxis, 3) / (PhysicalConstants.G * GameState.CentralBody.Mass))) * timeStep) / MathF.Pow(RadiusFromFoci, 2);
     }
 
     public float GetRadiusFromFoci(float Angle)
@@ -78,19 +79,19 @@ public class Orbit
     public float GetVelocityMagnitudeAtAngle(float angle)
     {
         float r = GetRadiusFromFoci(angle);
-        return MathF.Sqrt(PhysicalConstants.G * PhysicalConstants.MassOfPlanet * ((2 / r) - (1 / SemiMajorAxis)));
+        return MathF.Sqrt(PhysicalConstants.G * GameState.CentralBody.Mass * ((2 / r) - (1 / SemiMajorAxis)));
     }
 
     public float TimeToTrueAomaly(float targetTrueAnomaly)
     {
-        float mu = PhysicalConstants.G * PhysicalConstants.MassOfPlanet;
+        float mu = PhysicalConstants.G * GameState.CentralBody.Mass;
 
         // Mean motion (rad/s)
-        float a = (Apoapsis + Periapsis + 2 * PhysicalConstants.RadiusOfPlanet) / 2;
+        float a = (Apoapsis + Periapsis + 2 * GameState.CentralBody.Radius) / 2;
         float n = MathF.Sqrt(mu / MathF.Pow(a, 3));
 
         // Eccentric anomaly (E) from true anomaly
-        float e = (Apoapsis - Periapsis) / (Apoapsis + Periapsis + 2 * PhysicalConstants.RadiusOfPlanet);
+        float e = (Apoapsis - Periapsis) / (Apoapsis + Periapsis + 2 * GameState.CentralBody.Radius);
         float E_current = 2 * MathF.Atan(MathF.Sqrt((1 - e) / (1 + e)) * MathF.Tan(TrueAnomaly / 2));
         float E_target = 2 * MathF.Atan(MathF.Sqrt((1 - e) / (1 + e)) * MathF.Tan(targetTrueAnomaly / 2));
 

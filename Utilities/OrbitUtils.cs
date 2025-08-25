@@ -13,7 +13,7 @@ public static class OrbitUtils
         var mouseRadius = mousePos.Length();
 
         var orbitalAngle = mouseTheta - orbit.ArgumentOfPeriapsis;
-        var orbitRadius = orbit.GetRadiusFromFoci(orbitalAngle) / GameConstants.Scale;
+        var orbitRadius = orbit.GetRadiusFromFoci(orbitalAngle) / GameConstants.RenderingScale;
         var distance = MathF.Abs(mouseRadius - orbitRadius);
         if (distance < threshold)
         {
@@ -31,7 +31,7 @@ public static class OrbitUtils
 
     public static Orbit GetOrbitFromStateVectors(Vector2 pos, Vector2 velocity)
     {
-        float mu = PhysicalConstants.G * PhysicalConstants.MassOfPlanet; // μ = GM
+        float mu = PhysicalConstants.G * GameState.CentralBody.Mass; // μ = GM
 
         var r = pos.Length();
         var v = velocity.Length();
@@ -57,8 +57,8 @@ public static class OrbitUtils
         float argumentOfPeriapsis = MathF.Atan2(eVec.Y, eVec.X);
 
         // Periapsis and apoapsis
-        float periapsis = a * (1 - e) - PhysicalConstants.RadiusOfPlanet;
-        float apoapsis = a * (1 + e) - PhysicalConstants.RadiusOfPlanet;
+        float periapsis = a * (1 - e) - GameState.CentralBody.Radius;
+        float apoapsis = a * (1 + e) - GameState.CentralBody.Radius;
 
         return new Orbit(apoapsis, periapsis, argumentOfPeriapsis, trueAnomaly);
     }

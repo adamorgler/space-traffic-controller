@@ -1,4 +1,5 @@
-﻿using Microsoft.Xna.Framework;
+﻿using MenuBuddy;
+using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using MonoGame.Extended;
@@ -13,25 +14,38 @@ namespace SpaceTrafficController.UI;
 
 public class SimulationRenderer
 {
+    private readonly GraphicsDevice GraphicsDevice;
     private readonly SpriteBatch SpriteBatch;
     private readonly Camera2D Camera;
+    private readonly BasicEffect BasicEffect;
     private MouseState MouseState;
 
-    private const int Scale = GameConstants.Scale;
+    private const int Scale = GameConstants.RenderingScale;
 
     private List<string> DebugText = new();
 
-    public SimulationRenderer(SpriteBatch spriteBatch, Camera2D camera)
+    public SimulationRenderer(GraphicsDevice graphicsDevice, SpriteBatch spriteBatch, Camera2D camera)
     {
+        GraphicsDevice = graphicsDevice;
         SpriteBatch = spriteBatch;
         Camera = camera;
+        BasicEffect = new BasicEffect(GraphicsDevice)
+        {
+            VertexColorEnabled = true,
+            Projection = Matrix.CreateOrthographicOffCenter(0, GraphicsDevice.Viewport.Width, GraphicsDevice.Viewport.Height, 0, 0, 1),
+            View = Matrix.Identity,
+            World = Matrix.Identity,
+        };
     }
 
     public void DrawWorld(GameState gameState)
     {
         MouseState = Mouse.GetState();
 
-        DrawPlanet();
+        BasicEffect.View = Camera.GetTransform();
+
+        DrawBody();
+        DrawStations(gameState.Stations);
         DrawShips(gameState.Ships);
     }
 
@@ -40,10 +54,27 @@ public class SimulationRenderer
         DrawDebugText();
     }
 
-    private void DrawPlanet()
+    private void DrawBody()
     {
-        int radius = (int) (PhysicalConstants.RadiusOfPlanet / Scale);
-        SpriteBatch.DrawCircle(new Vector2(0, 0), radius, 360, Color.Blue, radius);
+        var body = GameState.CentralBody;
+        int radius = (int) (body.Radius / Scale);
+        SpriteBatch.DrawCircle(new Vector2(0, 0), radius, 360, Color.Wheat, radius);
+        DrawAtmosphere(body);
+    }
+
+    private void DrawAtmosphere(CelestialBody body)
+    {
+        var layers = body.AtmosphereLayers;
+        var baseDensity = body.BaseAtmosphereDensity;
+        var baseColor = Color.SkyBlue;
+        foreach (var layer in layers)
+        {
+            var thickness = layer.Thickness / Scale;
+            var radius = (layer.Altitude + body.Radius) / Scale - 1;
+            var alpha = layer.Density / baseDensity;
+            var color = new Color(baseColor.R, baseColor.G, baseColor.B) * alpha;
+            GraphicsDevice.DrawRing(new Vector2(0, 0), radius, radius + thickness, 180, color, BasicEffect);
+        }
     }
 
     private void DrawShips(List<Ship> ships)
@@ -89,7 +120,18 @@ public class SimulationRenderer
 
     private void DrawStations(List<Station> stations)
     {
+        int size = 7;
+        foreach (Station station in stations)
+        {
+            Vector2 position = station.Orbit.PositionVector / Scale;
 
+            var orbit = station.Orbit;
+            DrawOrbit(orbit, Color.White);
+
+            // ship square
+            Color shipColor = Color.Red;
+            SpriteBatch.DrawRectangle(position.X - (size / 2), position.Y - (size / 2), size, size, shipColor, 1.5f);
+        }
     }
 
     private void DrawOrbit(Orbit orbit, Color color)
