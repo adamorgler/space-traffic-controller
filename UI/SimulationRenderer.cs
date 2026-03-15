@@ -22,8 +22,6 @@ public class SimulationRenderer
 
     private const int Scale = GameConstants.RenderingScale;
 
-    private List<string> DebugText = new();
-
     public SimulationRenderer(GraphicsDevice graphicsDevice, SpriteBatch spriteBatch, Camera2D camera)
     {
         GraphicsDevice = graphicsDevice;
@@ -49,10 +47,7 @@ public class SimulationRenderer
         DrawShips(gameState.Ships);
     }
 
-    public void DrawScreen(GameState gameState)
-    {
-        DrawDebugText();
-    }
+
 
     private void DrawBody()
     {
@@ -132,24 +127,6 @@ public class SimulationRenderer
                     DrawOrbitMouseIntersection(orbit);
                 if (ship.ManeuverNode is not null)
                     DrawManueverNode(ship);
-
-                DebugText.Add($"Ship: Position: {ship.Position}");
-                var orbitType = ship.Orbit.IsEscapeTrajectory ? "Escape" : "Bound";
-                var apoapsisText = ship.Orbit.IsEscapeTrajectory ? "N/A (escape)" : ship.Orbit.Apoapsis.ToString();
-                DebugText.Add($"Orbit: Type: {orbitType}, AP: {apoapsisText}, PE: {ship.Orbit.Periapsis}, TrueAnomaly: {ship.Orbit.TrueAnomaly}");
-
-                var manueverNode = ship.ManeuverNode;
-                if (manueverNode is not null)
-                {
-                    DebugText.Add($"Manuever Node: TrueAnomaly: {manueverNode.TrueAnomaly} Position: {manueverNode.ScreenPosition}, DeltaV:{manueverNode.ProgradeDeltaV} + {manueverNode.NormalDeltaV} ");
-                    var predictedOrbit = manueverNode.GetPredictedOrbit(orbit);
-                    if (predictedOrbit is not null)
-                    {
-                        var predictedOrbitType = predictedOrbit.IsEscapeTrajectory ? "Escape" : "Bound";
-                        var predictedApoapsisText = predictedOrbit.IsEscapeTrajectory ? "N/A (escape)" : predictedOrbit.Apoapsis.ToString();
-                        DebugText.Add($"PredOrbit: Type: {predictedOrbitType}, AP: {predictedApoapsisText}, PE: {predictedOrbit.Periapsis}, V: {predictedOrbit.Velocity}, P: {predictedOrbit.PositionVector}");
-                    }
-                }
             }
 
             // ship square: uncontrolled ships render as light gray
@@ -379,18 +356,6 @@ public class SimulationRenderer
                 DrawIconLine(new Vector2(radius / 2f, 0f), new Vector2(0f, -radius / 2f));
                 break;
         }
-    }
-
-    private void DrawDebugText()
-    {
-        var offset = 0;
-        var offsetStep = 15;
-        foreach(var text in DebugText)
-        {
-            SpriteBatch.DrawString(Fonts.DebugFont, text, new Vector2(10, 10 + offset), Color.White);
-            offset += offsetStep;
-        }
-        DebugText.Clear();
     }
 
     private static List<List<Vector2>> BuildStationControlPaths(

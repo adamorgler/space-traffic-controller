@@ -27,10 +27,13 @@ public class InputHandler
     private bool _followingShip = false;
     private Vector2 _cameraFollowOffset = Vector2.Zero;
 
-    public InputHandler(Camera2D camera, GameState gameState)
+    private readonly UIRenderer UIRenderer;
+
+    public InputHandler(Camera2D camera, GameState gameState, UIRenderer uiRenderer)
     {
         Camera = camera;
         GameState = gameState;
+        UIRenderer = uiRenderer;
     }
 
     public void Update(GameTime gameTime)
@@ -163,6 +166,13 @@ public class InputHandler
         var manueverNode = selectedShip?.ManeuverNode ?? null;
         if (MouseState.LeftButton == ButtonState.Pressed && PrevMouseState.LeftButton == ButtonState.Released)
         {
+            // UI panel buttons take priority (screen-space)
+            var uiResult = UIRenderer.GetActionAt(MouseState.Position.ToVector2());
+            if (uiResult is not null)
+            {
+                ApplyUIAction(uiResult);
+                return;
+            }
             if (selectedShip is not null)
             {
                 if (manueverNode is not null)
@@ -325,6 +335,63 @@ public class InputHandler
 
 
         node.IsConfirmed = false;
+    }
+
+    private void ApplyUIAction(UIButtonResult result)
+    {
+        var ship = GameState.SelectedShip;
+        if (ship is null) return;
+
+        switch (result.Action)
+        {
+            case UIAction.CircularizeAtPE:
+                ApplyCircularize(ship, atPeriapsis: true);
+                break;
+            case UIAction.CircularizeAtAP:
+                ApplyCircularize(ship, atPeriapsis: false);
+                break;
+            case UIAction.ManeuverAccept:
+                if (ship.ManeuverNode is not null)
+                    ship.ManeuverNode.IsConfirmed = true;
+                break;
+            case UIAction.ManeuverCancel:
+                ship.ManeuverNode = null;
+                break;
+            case UIAction.ManeuverProgradeStep:
+                if (ship.ManeuverNode is not null)
+                {
+                    ship.ManeuverNode.ProgradeDeltaV += result.StepValue;
+                    ship.ManeuverNode.IsConfirmed = false;
+                }
+                break;
+            case UIAction.ManeuverNormalStep:
+                if (ship.ManeuverNode is not null)
+                {
+                    ship.ManeuverNode.NormalDeltaV += result.StepValue;
+                    ship.ManeuverNode.IsConfirmed = false;
+                }
+                break;
+        }
+    }
+
+    private void ApplyCircularize(Ship ship, bool atPeriapsis)
+    {
+        var orbit = ship.Orbit;
+        if (orbit.IsEscapeTrajectory) return;
+
+        var mu = PhysicalConstants.G * GameState.CentralBody.Mass;
+        var trueAnomaly = atPeriapsis ? 0d : Math.PI;
+        var r = atPeriapsis ? orbit.Perigee : orbit.Apogee;
+        var vCirc = Math.Sqrt(mu / r);
+        var vCurrent = orbit.GetVelocityMagnitudeAtAngle(trueAnomaly);
+
+        var screenPos = (orbit.GetPositionAtAngleD(trueAnomaly) / GameConstants.RenderingScale).ToVector2();
+        ship.ManeuverNode = new ManeuverNode()
+        {
+            TrueAnomaly = trueAnomaly,
+            ScreenPosition = screenPos,
+            ProgradeDeltaV = vCirc - vCurrent,
+        };
     }
 
     private Vector2 GetMouseWorldPosition()
