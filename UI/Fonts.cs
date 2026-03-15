@@ -11,4 +11,5 @@ public static class Fonts
 {
     public static SpriteFont DebugFont { get; set; }
     public static SpriteFont ManueverNode { get; set; }
+    public static SpriteFont PausedFont { get; set; }
 }

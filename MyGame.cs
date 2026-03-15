@@ -52,6 +52,7 @@ namespace SpaceTrafficController
 
             Fonts.DebugFont = Content.Load<SpriteFont>("DebugFont");
             Fonts.ManueverNode = Content.Load<SpriteFont>("ManueverNode");
+            Fonts.PausedFont = Content.Load<SpriteFont>("PausedFont");
 
             Test2();
         }

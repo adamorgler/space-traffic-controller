@@ -22,6 +22,10 @@ public class GameState
         set => SelectedOrbitingObject = value;
     }
 
+    public double ElapsedTimeSeconds { get; private set; }
+    public int CurrentWarpMultiplier => Warp;
+    public bool IsPaused { get; private set; }
+
     public void Init()
     {
         CentralBody = new CelestialBody()
@@ -34,11 +38,14 @@ public class GameState
             ControlAltitudeMeters = 2500e3,
         };
         OrbitingObjects = new List<HasOrbit>();
+        ElapsedTimeSeconds = 0d;
+        IsPaused = false;
     }
 
     public void Update(GameTime gameTime)
     {
-        var timeStep = gameTime.ElapsedGameTime.TotalSeconds * Warp;
+        var timeStep = IsPaused ? 0d : gameTime.ElapsedGameTime.TotalSeconds * Warp;
+        ElapsedTimeSeconds += timeStep;
 
         foreach (var orbiter in OrbitingObjects)
         {
@@ -94,6 +101,11 @@ public class GameState
     public void DecreaseWarp()
     {
         WarpState = Math.Clamp(WarpState - 1, 1, 10);
+    }
+
+    public void TogglePause()
+    {
+        IsPaused = !IsPaused;
     }
 
     public void CheckShipSeperation()

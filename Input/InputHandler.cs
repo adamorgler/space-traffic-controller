@@ -41,6 +41,20 @@ public class InputHandler
         KeyboardState = Keyboard.GetState();
         MouseState = Mouse.GetState();
 
+        if (KeyboardState.IsKeyDown(Keys.Space) && PrevKeyboardState.IsKeyUp(Keys.Space))
+        {
+            GameState.TogglePause();
+        }
+
+        if (GameState.IsPaused)
+        {
+            HandlePausedUiClick();
+            ClearTransientInputState();
+            PrevKeyboardState = KeyboardState;
+            PrevMouseState = MouseState;
+            return;
+        }
+
         HandleCameraMovement(gameTime);
         HandleCameraZoom();
         HandleWarpControl();
@@ -104,6 +118,36 @@ public class InputHandler
 
         PrevKeyboardState = KeyboardState;
         PrevMouseState = MouseState;
+    }
+
+    private void ClearTransientInputState()
+    {
+        var selectedShip = GameState.SelectedShip;
+        var manueverNode = selectedShip?.ManeuverNode;
+
+        if (DraggedNode is not null)
+        {
+            DraggedNode.IsDragged = false;
+            DraggedNode = null;
+        }
+
+        CurrentManeuverDrag = ManeuverDragType.None;
+        if (manueverNode is not null)
+        {
+            manueverNode.DragType = ManeuverDragType.None;
+        }
+    }
+
+    private void HandlePausedUiClick()
+    {
+        if (MouseState.LeftButton == ButtonState.Pressed && PrevMouseState.LeftButton == ButtonState.Released)
+        {
+            var uiResult = UIRenderer.GetActionAt(MouseState.Position.ToVector2());
+            if (uiResult is not null)
+            {
+                ApplyUIAction(uiResult);
+            }
+        }
     }
 
     private void HandleCameraMovement(GameTime gameTime)
@@ -342,6 +386,24 @@ public class InputHandler
 
     private void ApplyUIAction(UIButtonResult result)
     {
+        if (GameState.IsPaused && result.Action != UIAction.PauseToggle)
+        {
+            return;
+        }
+
+        switch (result.Action)
+        {
+            case UIAction.WarpDecrease:
+                GameState.DecreaseWarp();
+                return;
+            case UIAction.WarpIncrease:
+                GameState.IncreaseWarp();
+                return;
+            case UIAction.PauseToggle:
+                GameState.TogglePause();
+                return;
+        }
+
         var ship = GameState.SelectedShip;
         if (ship is null) return;
 

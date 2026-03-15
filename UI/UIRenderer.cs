@@ -9,7 +9,7 @@ using System.Collections.Generic;
 
 namespace SpaceTrafficController.UI;
 
-public enum UIAction { None, ManeuverProgradeStep, ManeuverNormalStep, CircularizeAtPE, CircularizeAtAP, ManeuverAccept, ManeuverCancel }
+public enum UIAction { None, ManeuverProgradeStep, ManeuverNormalStep, CircularizeAtPE, CircularizeAtAP, ManeuverAccept, ManeuverCancel, WarpDecrease, WarpIncrease, PauseToggle }
 public record UIButtonResult(UIAction Action, double StepValue = 0d);
 
 public class UIRenderer
@@ -32,8 +32,10 @@ public class UIRenderer
         var ms = Mouse.GetState();
         _mousePos = ms.Position.ToVector2();
         _mousePressed = ms.LeftButton == ButtonState.Pressed;
+        DrawTimeWarpPanel(gameState);
         DrawShipInfoPanel(gameState);
         DrawManeuverNodePanel(gameState);
+        DrawPausedOverlay(gameState);
     }
 
     public UIButtonResult? GetActionAt(Vector2 screenPos)
@@ -46,6 +48,88 @@ public class UIRenderer
 
     private static bool Hits(RectangleF r, Vector2 p)
         => p.X >= r.X && p.X <= r.X + r.Width && p.Y >= r.Y && p.Y <= r.Y + r.Height;
+
+    private void DrawTimeWarpPanel(GameState gameState)
+    {
+        var font = Fonts.DebugFont;
+        const float padding = 12f;
+        const float lineGap = 4f;
+        const float innerPadding = 10f;
+        const float buttonGap = 6f;
+        const float buttonHeight = 20f;
+        const float pauseButtonWidth = 90f;
+        const float stepButtonWidth = 28f;
+
+        var timeText = $"TIME  {FormatMissionTime(gameState.ElapsedTimeSeconds)}";
+        var warpText = $"WARP  x{gameState.CurrentWarpMultiplier}";
+        if (gameState.IsPaused)
+        {
+            warpText += " (PAUSED)";
+        }
+
+        var timeSize = font.MeasureString(timeText);
+        var warpSize = font.MeasureString(warpText);
+
+        var buttonRowWidth = (stepButtonWidth * 2f) + pauseButtonWidth + (buttonGap * 2f);
+
+        var panelWidth = Math.Max(Math.Max(timeSize.X, warpSize.X), buttonRowWidth) + (innerPadding * 2f);
+        var panelHeight = timeSize.Y + warpSize.Y + buttonHeight + (lineGap * 2f) + (innerPadding * 2f);
+        var panelX = GraphicsDevice.Viewport.Width - panelWidth - padding;
+        var panelY = padding;
+
+        SpriteBatch.FillRectangle(panelX, panelY, panelWidth, panelHeight, new Color(0, 0, 0, 180));
+        SpriteBatch.DrawRectangle(panelX, panelY, panelWidth, panelHeight, Color.Gray * 0.6f, 1f);
+
+        var timePos = new Vector2(panelX + innerPadding, panelY + innerPadding);
+        var warpPos = new Vector2(panelX + innerPadding, timePos.Y + timeSize.Y + lineGap);
+        var buttonY = warpPos.Y + warpSize.Y + lineGap;
+        var buttonStartX = panelX + (panelWidth - buttonRowWidth) / 2f;
+
+        SpriteBatch.DrawString(font, timeText, timePos, Color.White);
+        SpriteBatch.DrawString(font, warpText, warpPos, Color.Gold);
+
+        DrawPanelButton(
+            new RectangleF(buttonStartX, buttonY, stepButtonWidth, buttonHeight),
+            "-",
+            new UIButtonResult(UIAction.WarpDecrease));
+
+        DrawPanelButton(
+            new RectangleF(buttonStartX + stepButtonWidth + buttonGap, buttonY, pauseButtonWidth, buttonHeight),
+            gameState.IsPaused ? "Resume" : "Pause",
+            new UIButtonResult(UIAction.PauseToggle),
+            gameState.IsPaused ? new Color(80, 50, 20) : new Color(30, 80, 30));
+
+        DrawPanelButton(
+            new RectangleF(buttonStartX + stepButtonWidth + buttonGap + pauseButtonWidth + buttonGap, buttonY, stepButtonWidth, buttonHeight),
+            "+",
+            new UIButtonResult(UIAction.WarpIncrease));
+    }
+
+    private void DrawPausedOverlay(GameState gameState)
+    {
+        if (!gameState.IsPaused)
+        {
+            return;
+        }
+
+        var font = Fonts.PausedFont ?? Fonts.DebugFont;
+        const string pausedText = "PAUSED";
+        const float textScale = 1f;
+
+        var textSize = font.MeasureString(pausedText) * textScale;
+        var center = new Vector2(GraphicsDevice.Viewport.Width / 2f, GraphicsDevice.Viewport.Height / 2f);
+        var textPos = center - (textSize / 2f);
+
+        // Subtle center-screen dark backing for readability.
+        var overlayWidth = textSize.X + 80f;
+        var overlayHeight = textSize.Y + 30f;
+        var overlayRect = new RectangleF(center.X - overlayWidth / 2f, center.Y - overlayHeight / 2f, overlayWidth, overlayHeight);
+        SpriteBatch.FillRectangle(overlayRect, new Color(0, 0, 0, 120));
+
+        // Shadow + main text for stronger presence.
+        SpriteBatch.DrawString(font, pausedText, textPos + new Vector2(4f, 4f), Color.Black * 0.9f, 0f, Vector2.Zero, textScale, SpriteEffects.None, 0f);
+        SpriteBatch.DrawString(font, pausedText, textPos, Color.OrangeRed, 0f, Vector2.Zero, textScale, SpriteEffects.None, 0f);
+    }
 
     // ── Ship info panel (bottom-left) ─────────────────────────────────────
     private void DrawShipInfoPanel(GameState gameState)
@@ -241,5 +325,11 @@ public class UIRenderer
         if (meters >= 1_000_000d) return $"{meters / 1_000_000d:F2} Mm";
         if (meters >= 1_000d)     return $"{meters / 1_000d:F1} km";
         return $"{meters:F0} m";
+    }
+
+    private static string FormatMissionTime(double totalSeconds)
+    {
+        var ts = TimeSpan.FromSeconds(Math.Max(0d, totalSeconds));
+        return $"{(int)ts.TotalDays:D2}:{ts.Hours:D2}:{ts.Minutes:D2}:{ts.Seconds:D2}";
     }
 }

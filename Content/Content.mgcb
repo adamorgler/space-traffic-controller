@@ -27,3 +27,10 @@
 /processorParam:TextureFormat=Compressed
 /build:ManueverNode.spritefont
 
+#begin PausedFont.spritefont
+/importer:FontDescriptionImporter
+/processor:FontDescriptionProcessor
+/processorParam:PremultiplyAlpha=True
+/processorParam:TextureFormat=Color
+/build:PausedFont.spritefont
+
