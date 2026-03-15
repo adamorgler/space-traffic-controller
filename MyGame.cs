@@ -99,13 +99,13 @@ namespace SpaceTrafficController
                 Name = "Test Station"
             };
 
-            var ship1 = new Ship(new Orbit(560000d, 560000d, 180d.ToRadians(), 0d.ToRadians()))
+            var ship1 = new Ship(new Orbit(560000d, 560000d, 175d.ToRadians(), 0d.ToRadians()))
             {
                 Name = "Test Ship1",
                 Destination = new StationDestination(station)
             };
 
-            var ship2 = new Ship(new Orbit(640000d, 640000d, 190d.ToRadians(), 0d.ToRadians()))
+            var ship2 = new Ship(new Orbit(640000d, 640000d, 195d.ToRadians(), 0d.ToRadians()))
             {
                 Name = "Test Ship2",
                 Destination = new StationDestination(station)

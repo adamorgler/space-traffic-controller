@@ -170,19 +170,53 @@ public class SimulationRenderer
 
     private void DrawStationControlArea(Station station)
     {
-        var halfForward = station.ControlAreaHalfForwardMeters;
+        var arrivalExtent = station.ControlAreaArrivalExtentMeters;
+        var departureExtent = station.ControlAreaDepartureExtentMeters;
         var halfAltitude = station.ControlAreaHalfAltitudeMeters;
-        if (halfForward <= 0d || halfAltitude <= 0d)
+        if ((arrivalExtent <= 0d && departureExtent <= 0d) || halfAltitude <= 0d)
         {
             return;
         }
 
-        var path = BuildCircularOrbitRibbonPath(
+        var paths = BuildStationControlPaths(
             stationPosition: station.Orbit.PositionVectorD,
-            halfForward: halfForward,
+            arrivalExtent: arrivalExtent,
+            departureExtent: departureExtent,
             halfAltitude: halfAltitude);
 
-        DrawDashedPolyline(path, Color.LightSkyBlue, 1f / Camera.Zoom, dashLength: 1.5d, gapLength: 0.75d);
+        foreach (var path in paths)
+        {
+            DrawDashedPolyline(path, Color.LightSkyBlue, 1f / Camera.Zoom, dashLength: 1.5d, gapLength: 0.75d);
+        }
+
+        DrawStationControlArrows(station, arrivalExtent, departureExtent, halfAltitude);
+    }
+
+    private void DrawStationControlArrows(Station station, double arrivalExtent, double departureExtent, double halfAltitude)
+    {
+        var stationPosition = station.Orbit.PositionVectorD;
+        var orbitRadius = stationPosition.Length();
+        if (orbitRadius <= 0d)
+        {
+            return;
+        }
+
+        var centerAngle = Math.Atan2(stationPosition.Y, stationPosition.X);
+        var arrivalAngle = Math.Min(arrivalExtent / orbitRadius, Math.PI - 1e-4d);
+        var departureAngle = Math.Min(departureExtent / orbitRadius, Math.PI - 1e-4d);
+        var outerRadius = orbitRadius + halfAltitude / 2;
+        var innerRadius = Math.Max(1d, orbitRadius - halfAltitude / 2);
+        var arrowOffsetAngle = 1d.ToRadians();
+        var motionSign = Math.Sign((stationPosition.X * station.Orbit.VelocityVectorD.Y) - (stationPosition.Y * station.Orbit.VelocityVectorD.X));
+        if (motionSign == 0)
+        {
+            motionSign = 1;
+        }
+
+        DrawOrbitChevronArrow(centerAngle + arrivalAngle + arrowOffsetAngle, outerRadius, motionSign, alongOrbit: false, Color.LimeGreen);
+        DrawOrbitChevronArrow(centerAngle - arrivalAngle - arrowOffsetAngle, innerRadius, motionSign, alongOrbit: true, Color.LimeGreen);
+        DrawOrbitChevronArrow(centerAngle + departureAngle + arrowOffsetAngle, innerRadius, motionSign, alongOrbit: true, Color.Red);
+        DrawOrbitChevronArrow(centerAngle - departureAngle - arrowOffsetAngle, outerRadius, motionSign, alongOrbit: false, Color.Red);
     }
 
     private void DrawOrbit(Orbit orbit, Color color)
@@ -314,50 +348,62 @@ public class SimulationRenderer
         DebugText.Clear();
     }
 
-    private static List<Vector2> BuildCircularOrbitRibbonPath(
+    private static List<List<Vector2>> BuildStationControlPaths(
         DVector2 stationPosition,
-        double halfForward,
+        double arrivalExtent,
+        double departureExtent,
         double halfAltitude)
     {
         var orbitRadius = stationPosition.Length();
         if (orbitRadius <= 0d)
         {
-            return new List<Vector2>();
+            return new List<List<Vector2>>();
         }
 
         var centerAngle = Math.Atan2(stationPosition.Y, stationPosition.X);
-        var halfAngle = Math.Min(halfForward / orbitRadius, Math.PI - 1e-4d);
+        var arrivalAngle = Math.Min(arrivalExtent / orbitRadius, Math.PI - 1e-4d);
+        var departureAngle = Math.Min(departureExtent / orbitRadius, Math.PI - 1e-4d);
         var outerRadius = orbitRadius + halfAltitude;
         var innerRadius = Math.Max(1d, orbitRadius - halfAltitude);
-        var totalAngle = halfAngle * 2d;
-        var segments = Math.Max(12, (int)Math.Ceiling(totalAngle / (5d.ToRadians())));
-        var points = new List<Vector2>((segments * 2) + 3);
+        var upperSegments = Math.Max(12, (int)Math.Ceiling((arrivalAngle + departureAngle) / (5d.ToRadians())));
+        var lowerSegments = Math.Max(12, (int)Math.Ceiling((arrivalAngle + departureAngle) / (5d.ToRadians())));
 
-        AddArc(outerRadius, centerAngle - halfAngle, centerAngle + halfAngle, segments);
-        AddPoint(innerRadius, centerAngle + halfAngle);
-        AddArc(innerRadius, centerAngle + halfAngle, centerAngle - halfAngle, segments);
-
-        if (points.Count > 0)
+        return new List<List<Vector2>>
         {
-            points.Add(points[0]);
-        }
+            BuildArcPath(outerRadius, centerAngle - departureAngle, centerAngle + arrivalAngle, upperSegments),
+            BuildArcPath(innerRadius, centerAngle - arrivalAngle, centerAngle + departureAngle, lowerSegments),
+            BuildRadialPath(centerAngle + arrivalAngle, orbitRadius, outerRadius),
+            BuildRadialPath(centerAngle + departureAngle, innerRadius, orbitRadius),
+            BuildRadialPath(centerAngle - departureAngle, orbitRadius, outerRadius),
+            BuildRadialPath(centerAngle - arrivalAngle, innerRadius, orbitRadius),
+        };
 
-        return points;
-
-        void AddArc(double radius, double startAngle, double endAngle, int segmentCount)
+        List<Vector2> BuildArcPath(double radius, double startAngle, double endAngle, int segmentCount)
         {
+            var points = new List<Vector2>(segmentCount + 1);
             for (int i = 0; i <= segmentCount; i++)
             {
                 var t = (double)i / segmentCount;
                 var angle = startAngle + ((endAngle - startAngle) * t);
-                AddPoint(radius, angle);
+                points.Add(ToScaledPoint(radius, angle));
             }
+
+            return points;
         }
 
-        void AddPoint(double radius, double angle)
+        List<Vector2> BuildRadialPath(double angle, double startRadius, double endRadius)
+        {
+            return new List<Vector2>
+            {
+                ToScaledPoint(startRadius, angle),
+                ToScaledPoint(endRadius, angle),
+            };
+        }
+
+        Vector2 ToScaledPoint(double radius, double angle)
         {
             var point = MathUtils.PolarToCartesian(angle, radius) / Scale;
-            points.Add(point.ToVector2());
+            return point.ToVector2();
         }
     }
 
@@ -406,5 +452,32 @@ public class SimulationRenderer
                 patternOffset += stepLength;
             }
         }
+    }
+
+    private void DrawOrbitChevronArrow(double angle, double radius, int motionSign, bool alongOrbit, Color color)
+    {
+        var center = (MathUtils.PolarToCartesian(angle, radius) / Scale).ToVector2();
+        var radial = Vector2.Normalize(center);
+        if (radial.LengthSquared() <= 0f)
+        {
+            return;
+        }
+
+        var tangent = new Vector2(-radial.Y, radial.X) * motionSign;
+        if (!alongOrbit)
+        {
+            tangent = -tangent;
+        }
+
+        var headLength = 9f / Camera.Zoom;
+        var headWidth = 4.5f / Camera.Zoom;
+        var tip = center + (tangent * (headLength * 0.5f));
+        var tailCenter = center - (tangent * (headLength * 0.5f));
+        var wingOffset = radial * headWidth;
+        var thickness = 1.5f / Camera.Zoom;
+        var arrowColor = color * 0.5f;
+
+        SpriteBatch.DrawLine(tip, tailCenter + wingOffset, arrowColor, thickness);
+        SpriteBatch.DrawLine(tip, tailCenter - wingOffset, arrowColor, thickness);
     }
 }

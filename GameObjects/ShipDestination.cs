@@ -32,10 +32,12 @@ public sealed class StationDestination : ShipDestination
         }
 
         var halfAltitude = Station.ControlAreaHalfAltitudeMeters;
-        var halfForward = Station.ControlAreaHalfForwardMeters;
+        var arrivalExtent = Station.ControlAreaArrivalExtentMeters;
+        var departureExtent = Station.ControlAreaDepartureExtentMeters;
         var innerRadius = Math.Max(1d, stationRadius - halfAltitude);
         var outerRadius = stationRadius + halfAltitude;
-        var halfAngle = halfForward / stationRadius;
+        var arrivalAngle = arrivalExtent / stationRadius;
+        var departureAngle = departureExtent / stationRadius;
 
         var stationAngle = Math.Atan2(stationPosition.Y, stationPosition.X);
         var stationVelocity = Station.Orbit.VelocityVectorD;
@@ -51,8 +53,14 @@ public sealed class StationDestination : ShipDestination
         var previousSignedOffset = GetSignedOffset(ship.PreviousPositionD, stationAngle, motionSign);
         var currentSignedOffset = GetSignedOffset(ship.PositionD, stationAngle, motionSign);
 
-        var isCurrentlyInsideControlArea = IsWithinRadiusBand(currentRadius, innerRadius, outerRadius)
-            && Math.Abs(currentSignedOffset) <= halfAngle;
+        var isCurrentlyInsideControlArea = IsInsideControlArea(
+            currentRadius,
+            currentSignedOffset,
+            stationRadius,
+            innerRadius,
+            outerRadius,
+            arrivalAngle,
+            departureAngle);
 
         if (!isCurrentlyInsideControlArea)
         {
@@ -74,8 +82,8 @@ public sealed class StationDestination : ShipDestination
         var wasWithinRadiusBand = IsWithinRadiusBand(previousRadius, innerRadius, outerRadius);
 
         var enteredFromFront = wasWithinRadiusBand
-            && previousSignedOffset > halfAngle
-            && currentSignedOffset <= halfAngle;
+            && previousSignedOffset > arrivalAngle
+            && currentSignedOffset <= arrivalAngle;
         if (enteredFromFront)
         {
             return IsFrontArrivalSide(currentRadius, stationRadius, currentSignedOffset)
@@ -83,8 +91,8 @@ public sealed class StationDestination : ShipDestination
         }
 
         var enteredFromRear = wasWithinRadiusBand
-            && previousSignedOffset < -halfAngle
-            && currentSignedOffset >= -halfAngle;
+            && previousSignedOffset < -arrivalAngle
+            && currentSignedOffset >= -arrivalAngle;
         if (enteredFromRear)
         {
             return IsRearArrivalSide(currentRadius, stationRadius, currentSignedOffset)
@@ -102,6 +110,30 @@ public sealed class StationDestination : ShipDestination
     private static bool IsRearArrivalSide(double currentRadius, double stationRadius, double currentSignedOffset)
     {
         return currentRadius < stationRadius && currentSignedOffset <= 0d;
+    }
+
+    private static bool IsInsideControlArea(
+        double currentRadius,
+        double currentSignedOffset,
+        double stationRadius,
+        double innerRadius,
+        double outerRadius,
+        double arrivalAngle,
+        double departureAngle)
+    {
+        if (!IsWithinRadiusBand(currentRadius, innerRadius, outerRadius))
+        {
+            return false;
+        }
+
+        if (currentRadius >= stationRadius)
+        {
+            return currentSignedOffset >= -departureAngle
+                && currentSignedOffset <= arrivalAngle;
+        }
+
+        return currentSignedOffset >= -arrivalAngle
+            && currentSignedOffset <= departureAngle;
     }
 
     private static bool IsOrbitCompatibleWithFrontArrival(Ship ship, Station station)
