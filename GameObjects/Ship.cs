@@ -19,6 +19,7 @@ public class Ship : HasOrbit
     public DVector2 PositionD { get { return Orbit.PositionVectorD; } }
     public Vector2 Position { get { return Orbit.PositionVector; } }
     public ManeuverNode ManeuverNode { get; set; }
+    public ShipDestination Destination { get; set; }
 
     public override void UpdateExtension(double gameTime)
     {
@@ -41,6 +42,11 @@ public class Ship : HasOrbit
 
     public bool ShouldDespawn()
     {
+        if (Destination is not null && Destination.HasArrived(this))
+        {
+            return true;
+        }
+
         if (!Orbit.IsEscapeTrajectory)
         {
             return false;

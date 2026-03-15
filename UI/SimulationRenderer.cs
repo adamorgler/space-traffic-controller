@@ -160,11 +160,29 @@ public class SimulationRenderer
 
             var orbit = station.Orbit;
             DrawOrbit(orbit, Color.White);
+            DrawStationControlArea(station);
 
             // ship square
             Color shipColor = Color.AliceBlue;
             SpriteBatch.DrawCircle(position.X, position.Y, size, 36, shipColor, 1.5f);
         }
+    }
+
+    private void DrawStationControlArea(Station station)
+    {
+        var halfForward = station.ControlAreaHalfForwardMeters;
+        var halfAltitude = station.ControlAreaHalfAltitudeMeters;
+        if (halfForward <= 0d || halfAltitude <= 0d)
+        {
+            return;
+        }
+
+        var path = BuildCircularOrbitRibbonPath(
+            stationPosition: station.Orbit.PositionVectorD,
+            halfForward: halfForward,
+            halfAltitude: halfAltitude);
+
+        DrawDashedPolyline(path, Color.LightSkyBlue, 1f / Camera.Zoom, dashLength: 1.5d, gapLength: 0.75d);
     }
 
     private void DrawOrbit(Orbit orbit, Color color)
@@ -294,5 +312,99 @@ public class SimulationRenderer
             offset += offsetStep;
         }
         DebugText.Clear();
+    }
+
+    private static List<Vector2> BuildCircularOrbitRibbonPath(
+        DVector2 stationPosition,
+        double halfForward,
+        double halfAltitude)
+    {
+        var orbitRadius = stationPosition.Length();
+        if (orbitRadius <= 0d)
+        {
+            return new List<Vector2>();
+        }
+
+        var centerAngle = Math.Atan2(stationPosition.Y, stationPosition.X);
+        var halfAngle = Math.Min(halfForward / orbitRadius, Math.PI - 1e-4d);
+        var outerRadius = orbitRadius + halfAltitude;
+        var innerRadius = Math.Max(1d, orbitRadius - halfAltitude);
+        var totalAngle = halfAngle * 2d;
+        var segments = Math.Max(12, (int)Math.Ceiling(totalAngle / (5d.ToRadians())));
+        var points = new List<Vector2>((segments * 2) + 3);
+
+        AddArc(outerRadius, centerAngle - halfAngle, centerAngle + halfAngle, segments);
+        AddPoint(innerRadius, centerAngle + halfAngle);
+        AddArc(innerRadius, centerAngle + halfAngle, centerAngle - halfAngle, segments);
+
+        if (points.Count > 0)
+        {
+            points.Add(points[0]);
+        }
+
+        return points;
+
+        void AddArc(double radius, double startAngle, double endAngle, int segmentCount)
+        {
+            for (int i = 0; i <= segmentCount; i++)
+            {
+                var t = (double)i / segmentCount;
+                var angle = startAngle + ((endAngle - startAngle) * t);
+                AddPoint(radius, angle);
+            }
+        }
+
+        void AddPoint(double radius, double angle)
+        {
+            var point = MathUtils.PolarToCartesian(angle, radius) / Scale;
+            points.Add(point.ToVector2());
+        }
+    }
+
+    private void DrawDashedPolyline(IReadOnlyList<Vector2> points, Color color, float thickness, double dashLength, double gapLength)
+    {
+        if (points.Count < 2)
+        {
+            return;
+        }
+
+        var patternLength = dashLength + gapLength;
+        if (patternLength <= 0d)
+        {
+            return;
+        }
+
+        var patternOffset = 0d;
+        for (int i = 0; i < points.Count - 1; i++)
+        {
+            var segmentStart = points[i];
+            var segmentEnd = points[i + 1];
+            var segment = segmentEnd - segmentStart;
+            var segmentLength = segment.Length();
+            if (segmentLength <= 0f)
+            {
+                continue;
+            }
+
+            var direction = segment / segmentLength;
+            var distanceAlongSegment = 0d;
+            while (distanceAlongSegment < segmentLength)
+            {
+                var cyclePosition = patternOffset % patternLength;
+                var remainingInCycle = patternLength - cyclePosition;
+                var stepLength = Math.Min(remainingInCycle, segmentLength - distanceAlongSegment);
+
+                if (cyclePosition < dashLength)
+                {
+                    var drawLength = Math.Min(stepLength, dashLength - cyclePosition);
+                    var dashStart = segmentStart + (direction * (float)distanceAlongSegment);
+                    var dashEnd = segmentStart + (direction * (float)(distanceAlongSegment + drawLength));
+                    SpriteBatch.DrawLine(dashStart, dashEnd, color, thickness);
+                }
+
+                distanceAlongSegment += stepLength;
+                patternOffset += stepLength;
+            }
+        }
     }
 }

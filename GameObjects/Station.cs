@@ -10,6 +10,9 @@ namespace SpaceTrafficController.GameObjects;
 
 public class Station : HasOrbit
 {
+    public const double DefaultControlAreaHalfAltitudeMeters = 75e3;
+    public const double DefaultControlAreaHalfForwardMeters = 250e3;
+
     public Station(Orbit orbit) : base(orbit)
     {
     }
@@ -17,6 +20,10 @@ public class Station : HasOrbit
     public string Name { get; set; }
 
     public int NumberOfRunways { get; set; }
+
+    public double ControlAreaHalfAltitudeMeters { get; set; } = DefaultControlAreaHalfAltitudeMeters;
+
+    public double ControlAreaHalfForwardMeters { get; set; } = DefaultControlAreaHalfForwardMeters;
 
     public override void UpdateExtension(double timeStep)
     {

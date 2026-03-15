@@ -50,7 +50,7 @@ namespace SpaceTrafficController
             Fonts.DebugFont = Content.Load<SpriteFont>("DebugFont");
             Fonts.ManueverNode = Content.Load<SpriteFont>("ManueverNode");
 
-            Test3();
+            Test1();
         }
 
         protected override void Update(GameTime gameTime)
@@ -94,8 +94,26 @@ namespace SpaceTrafficController
 
         private void Test1()
         {
-            GameState.OrbitingObjects.Add(new Ship(new Orbit(600000d, 600000d, 180d.ToRadians(), 0d.ToRadians())));
-            GameState.OrbitingObjects.Add(new Station(new Orbit(600000d, 600000d, 190d.ToRadians(), 0d.ToRadians())));
+            var station = new Station(new Orbit(600000d, 600000d, 185d.ToRadians(), 0d.ToRadians()))
+            {
+                Name = "Test Station"
+            };
+
+            var ship1 = new Ship(new Orbit(560000d, 560000d, 180d.ToRadians(), 0d.ToRadians()))
+            {
+                Name = "Test Ship1",
+                Destination = new StationDestination(station)
+            };
+
+            var ship2 = new Ship(new Orbit(640000d, 640000d, 190d.ToRadians(), 0d.ToRadians()))
+            {
+                Name = "Test Ship2",
+                Destination = new StationDestination(station)
+            };
+
+            GameState.OrbitingObjects.Add(ship1);
+            GameState.OrbitingObjects.Add(ship2);
+            GameState.OrbitingObjects.Add(station);
         }
 
         private void Test2()

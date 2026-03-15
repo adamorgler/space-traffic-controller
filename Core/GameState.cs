@@ -55,7 +55,7 @@ public class GameState
             }
         }
 
-        RemoveEscapedShips();
+        RemoveDespawnedShips();
         CheckShipSeperation();
     }
 
@@ -144,15 +144,15 @@ public class GameState
         }
     }
 
-    private void RemoveEscapedShips()
+    private void RemoveDespawnedShips()
     {
-        var escapedShips = Ships.Where(ship => ship.ShouldDespawn()).ToList();
-        if (escapedShips.Count == 0)
+        var despawnedShips = Ships.Where(ship => ship.ShouldDespawn()).ToList();
+        if (despawnedShips.Count == 0)
         {
             return;
         }
 
-        foreach (var ship in escapedShips)
+        foreach (var ship in despawnedShips)
         {
             if (SelectedShip == ship)
             {
