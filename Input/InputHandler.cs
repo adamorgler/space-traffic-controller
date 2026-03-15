@@ -53,27 +53,34 @@ public class InputHandler
         if (_followingShip && GameState.SelectedOrbitingObject is not null)
         {
             var selectedObjectPos = GameState.SelectedOrbitingObject.Orbit.PositionVector / GameConstants.RenderingScale;
-            var cameraFollowPos = selectedObjectPos + _cameraFollowOffset;
             float targetRotation = Camera.Rotation;
 
             var velocity = GameState.SelectedOrbitingObject.Orbit.VelocityVector;
             if (velocity.LengthSquared() > 1e-6f)
             {
                 var tangentAngle = MathF.Atan2(velocity.Y, velocity.X);
+                var baseRotation = -tangentAngle;
+
+                // Convert local offset to world using the base tangent rotation to find approximate camera position.
+                var baseWorldOffset = Vector2.Transform(_cameraFollowOffset, Matrix.CreateRotationZ(-baseRotation));
+                var baseCameraFollowPos = selectedObjectPos + baseWorldOffset;
 
                 float additionalOffsetRotation = 0f;
                 if (_cameraFollowOffset.LengthSquared() > 1e-6f
                     && selectedObjectPos.LengthSquared() > 1e-6f
-                    && cameraFollowPos.LengthSquared() > 1e-6f)
+                    && baseCameraFollowPos.LengthSquared() > 1e-6f)
                 {
                     var selectedAngle = MathF.Atan2(selectedObjectPos.Y, selectedObjectPos.X);
-                    var cameraAngle = MathF.Atan2(cameraFollowPos.Y, cameraFollowPos.X);
+                    var cameraAngle = MathF.Atan2(baseCameraFollowPos.Y, baseCameraFollowPos.X);
                     additionalOffsetRotation = MathHelper.WrapAngle(cameraAngle - selectedAngle);
                 }
 
                 targetRotation = -(tangentAngle + additionalOffsetRotation);
             }
 
+            // Recompute world offset from the final rotation so the local offset stays visually stable.
+            var worldOffset = Vector2.Transform(_cameraFollowOffset, Matrix.CreateRotationZ(-targetRotation));
+            var cameraFollowPos = selectedObjectPos + worldOffset;
             Camera.SetPose(cameraFollowPos, targetRotation);
         }
 
@@ -118,19 +125,15 @@ public class InputHandler
 
         if (move != Vector2.Zero)
         {
-            var inputToWorldRotation = Matrix.CreateRotationZ(-Camera.Rotation);
-            move = Vector2.Transform(move, inputToWorldRotation);
-        }
-
-        if (move != Vector2.Zero)
-        {
             if (_followingShip && GameState.SelectedOrbitingObject is not null)
             {
+                // Offset is camera-local: add the raw (unrotated) input directly.
                 _cameraFollowOffset += move;
             }
             else
             {
-                Camera.Move(move);
+                var inputToWorldRotation = Matrix.CreateRotationZ(-Camera.Rotation);
+                Camera.Move(Vector2.Transform(move, inputToWorldRotation));
             }
         }
     }
