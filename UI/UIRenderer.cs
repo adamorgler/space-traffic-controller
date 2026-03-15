@@ -62,6 +62,7 @@ public class UIRenderer
 
         var timeText = $"TIME  {FormatMissionTime(gameState.ElapsedTimeSeconds)}";
         var warpText = $"WARP  x{gameState.CurrentWarpMultiplier}";
+        var scoreText = $"SCORE {gameState.Score,7:0.0}   x{gameState.ScoreMultiplier}";
         if (gameState.IsPaused)
         {
             warpText += " (PAUSED)";
@@ -69,11 +70,12 @@ public class UIRenderer
 
         var timeSize = font.MeasureString(timeText);
         var warpSize = font.MeasureString(warpText);
+        var scoreSize = font.MeasureString(scoreText);
 
         var buttonRowWidth = (stepButtonWidth * 2f) + pauseButtonWidth + (buttonGap * 2f);
 
-        var panelWidth = Math.Max(Math.Max(timeSize.X, warpSize.X), buttonRowWidth) + (innerPadding * 2f);
-        var panelHeight = timeSize.Y + warpSize.Y + buttonHeight + (lineGap * 2f) + (innerPadding * 2f);
+        var panelWidth = Math.Max(Math.Max(Math.Max(timeSize.X, warpSize.X), scoreSize.X), buttonRowWidth) + (innerPadding * 2f);
+        var panelHeight = timeSize.Y + warpSize.Y + scoreSize.Y + buttonHeight + (lineGap * 3f) + (innerPadding * 2f);
         var panelX = GraphicsDevice.Viewport.Width - panelWidth - padding;
         var panelY = padding;
 
@@ -82,11 +84,13 @@ public class UIRenderer
 
         var timePos = new Vector2(panelX + innerPadding, panelY + innerPadding);
         var warpPos = new Vector2(panelX + innerPadding, timePos.Y + timeSize.Y + lineGap);
-        var buttonY = warpPos.Y + warpSize.Y + lineGap;
+        var scorePos = new Vector2(panelX + innerPadding, warpPos.Y + warpSize.Y + lineGap);
+        var buttonY = scorePos.Y + scoreSize.Y + lineGap;
         var buttonStartX = panelX + (panelWidth - buttonRowWidth) / 2f;
 
         SpriteBatch.DrawString(font, timeText, timePos, Color.White);
         SpriteBatch.DrawString(font, warpText, warpPos, Color.Gold);
+        SpriteBatch.DrawString(font, scoreText, scorePos, Color.LightSkyBlue);
 
         DrawPanelButton(
             new RectangleF(buttonStartX, buttonY, stepButtonWidth, buttonHeight),

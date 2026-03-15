@@ -8,6 +8,20 @@ public abstract class ShipDestination
     public abstract bool HasArrived(Ship ship);
 }
 
+public sealed class ExitControlAreaDestination : ShipDestination
+{
+    public override bool HasArrived(Ship ship)
+    {
+        if (ship is null)
+        {
+            return false;
+        }
+
+        var controlRadius = Core.GameState.CentralBody.ControlRadius;
+        return ship.PositionD.Length() >= controlRadius;
+    }
+}
+
 public sealed class StationDestination : ShipDestination
 {
     public StationDestination(Station station)
@@ -68,13 +82,13 @@ public sealed class StationDestination : ShipDestination
         }
 
         if (IsFrontArrivalSide(currentRadius, stationRadius, currentSignedOffset)
-            && IsOrbitCompatibleWithFrontArrival(ship, Station))
+            && IsOrbitCompatibleWithFrontArrival(ship, Station, currentRadius))
         {
             return true;
         }
 
         if (IsRearArrivalSide(currentRadius, stationRadius, currentSignedOffset)
-            && IsOrbitCompatibleWithRearArrival(ship, Station))
+            && IsOrbitCompatibleWithRearArrival(ship, Station, currentRadius))
         {
             return true;
         }
@@ -87,7 +101,7 @@ public sealed class StationDestination : ShipDestination
         if (enteredFromFront)
         {
             return IsFrontArrivalSide(currentRadius, stationRadius, currentSignedOffset)
-                && IsOrbitCompatibleWithFrontArrival(ship, Station);
+                && IsOrbitCompatibleWithFrontArrival(ship, Station, currentRadius);
         }
 
         var enteredFromRear = wasWithinRadiusBand
@@ -96,7 +110,7 @@ public sealed class StationDestination : ShipDestination
         if (enteredFromRear)
         {
             return IsRearArrivalSide(currentRadius, stationRadius, currentSignedOffset)
-                && IsOrbitCompatibleWithRearArrival(ship, Station);
+                && IsOrbitCompatibleWithRearArrival(ship, Station, currentRadius);
         }
 
         return false;
@@ -136,26 +150,39 @@ public sealed class StationDestination : ShipDestination
             && currentSignedOffset <= departureAngle;
     }
 
-    private static bool IsOrbitCompatibleWithFrontArrival(Ship ship, Station station)
+    private static bool IsOrbitCompatibleWithFrontArrival(Ship ship, Station station, double currentRadius)
     {
         var stationOrbitAltitude = station.Orbit.Periapsis;
         var upperBound = stationOrbitAltitude + station.ControlAreaHalfAltitudeMeters;
+        var radialVelocity = GetRadialVelocity(ship);
 
-        return ship.Orbit.Periapsis >= stationOrbitAltitude
-            && ship.Orbit.Periapsis <= upperBound
-            && ship.Orbit.Apoapsis >= stationOrbitAltitude
-            && ship.Orbit.Apoapsis <= upperBound;
+        return currentRadius >= stationOrbitAltitude
+            && currentRadius <= upperBound
+            && radialVelocity <= 0d;
     }
 
-    private static bool IsOrbitCompatibleWithRearArrival(Ship ship, Station station)
+    private static bool IsOrbitCompatibleWithRearArrival(Ship ship, Station station, double currentRadius)
     {
         var stationOrbitAltitude = station.Orbit.Periapsis;
         var lowerBound = stationOrbitAltitude - station.ControlAreaHalfAltitudeMeters;
+        var radialVelocity = GetRadialVelocity(ship);
 
-        return ship.Orbit.Periapsis >= lowerBound
-            && ship.Orbit.Periapsis <= stationOrbitAltitude
-            && ship.Orbit.Apoapsis >= lowerBound
-            && ship.Orbit.Apoapsis <= stationOrbitAltitude;
+        return currentRadius >= lowerBound
+            && currentRadius <= stationOrbitAltitude
+            && radialVelocity >= 0d;
+    }
+
+    private static double GetRadialVelocity(Ship ship)
+    {
+        var position = ship.PositionD;
+        var radius = position.Length();
+        if (radius <= 0d)
+        {
+            return 0d;
+        }
+
+        var velocity = ship.Orbit.VelocityVectorD;
+        return ((position.X * velocity.X) + (position.Y * velocity.Y)) / radius;
     }
 
     private static double GetSignedOffset(DVector2 shipPosition, double stationAngle, double motionSign)

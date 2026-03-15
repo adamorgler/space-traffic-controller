@@ -1,7 +1,6 @@
 ﻿using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
-using SharpDX.MediaFoundation;
 using SpaceTrafficController.Core;
 using SpaceTrafficController.GameObjects;
 using SpaceTrafficController.Input;
@@ -53,8 +52,6 @@ namespace SpaceTrafficController
             Fonts.DebugFont = Content.Load<SpriteFont>("DebugFont");
             Fonts.ManueverNode = Content.Load<SpriteFont>("ManueverNode");
             Fonts.PausedFont = Content.Load<SpriteFont>("PausedFont");
-
-            Test2();
         }
 
         protected override void Update(GameTime gameTime)

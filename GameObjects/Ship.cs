@@ -20,6 +20,7 @@ public class Ship : HasOrbit
     public Vector2 Position { get { return Orbit.PositionVector; } }
     public ManeuverNode ManeuverNode { get; set; }
     public ShipDestination Destination { get; set; }
+    public ShipTrafficLane TrafficLane { get; set; } = ShipTrafficLane.None;
 
     public override void UpdateExtension(double gameTime)
     {
@@ -65,9 +66,17 @@ public enum ShipState
     Deorbiting
 }
 
+public enum ShipTrafficLane
+{
+    None,
+    StationDepartureUpper,
+    StationDepartureLower,
+}
+
 public class ShipStatus
 {
     public bool IsSelected { get; set; } = false;
     public bool IsEncroached { get; set; } = false;
+    public bool WasEncroachedLastFrame { get; set; } = false;
     public bool IsControllable { get; set; } = true;
 }
