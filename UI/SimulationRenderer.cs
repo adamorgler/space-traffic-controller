@@ -60,6 +60,22 @@ public class SimulationRenderer
         int radius = (int) (body.Radius / Scale);
         SpriteBatch.DrawCircle(new Vector2(0, 0), radius, 360, Color.Wheat, radius);
         DrawAtmosphere(body);
+        DrawControlAltitude(body);
+    }
+
+    private void DrawControlAltitude(CelestialBody body)
+    {
+        var radius = (float)((body.Radius + body.ControlAltitudeMeters) / Scale);
+        var dashDeg = 6d;
+        var gapDeg = 6d;
+        for (double angle = 0d; angle < 360d; angle += dashDeg + gapDeg)
+        {
+            var start = (angle).ToRadians();
+            var end = (angle + dashDeg).ToRadians();
+            var p1 = new Vector2((float)(Math.Cos(start) * radius), (float)(Math.Sin(start) * radius));
+            var p2 = new Vector2((float)(Math.Cos(end) * radius), (float)(Math.Sin(end) * radius));
+            SpriteBatch.DrawLine(p1, p2, Color.LightGray, 1f / Camera.Zoom);
+        }
     }
 
     private void DrawAtmosphere(CelestialBody body)
@@ -69,9 +85,9 @@ public class SimulationRenderer
         var baseColor = Color.SkyBlue;
         foreach (var layer in layers)
         {
-            var thickness = layer.Thickness / Scale;
-            var radius = (layer.Altitude + body.Radius) / Scale - 1;
-            var alpha = layer.Density / baseDensity;
+            var thickness = (float)(layer.Thickness / Scale);
+            var radius = (float)(((layer.Altitude + body.Radius) / Scale) - 1d);
+            var alpha = (float)(layer.Density / baseDensity);
             var color = new Color(baseColor.R, baseColor.G, baseColor.B) * alpha;
             GraphicsDevice.DrawRing(new Vector2(0, 0), radius, radius + thickness, 180, color, BasicEffect);
         }
@@ -95,7 +111,9 @@ public class SimulationRenderer
                     DrawManueverNode(ship);
 
                 DebugText.Add($"Ship: Position: {ship.Position}");
-                DebugText.Add($"Orbit: AP: {ship.Orbit.Apoapsis}, PE: {ship.Orbit.Periapsis}, TrueAnomaly: {ship.Orbit.TrueAnomaly}");
+                var orbitType = ship.Orbit.IsEscapeTrajectory ? "Escape" : "Bound";
+                var apoapsisText = ship.Orbit.IsEscapeTrajectory ? "N/A (escape)" : ship.Orbit.Apoapsis.ToString();
+                DebugText.Add($"Orbit: Type: {orbitType}, AP: {apoapsisText}, PE: {ship.Orbit.Periapsis}, TrueAnomaly: {ship.Orbit.TrueAnomaly}");
 
                 var manueverNode = ship.ManeuverNode;
                 if (manueverNode is not null)
@@ -103,12 +121,24 @@ public class SimulationRenderer
                     DebugText.Add($"Manuever Node: TrueAnomaly: {manueverNode.TrueAnomaly} Position: {manueverNode.ScreenPosition}, DeltaV:{manueverNode.ProgradeDeltaV} + {manueverNode.NormalDeltaV} ");
                     var predictedOrbit = manueverNode.GetPredictedOrbit(orbit);
                     if (predictedOrbit is not null)
-                        DebugText.Add($"PredOrbit: AP: {predictedOrbit.Apoapsis}, PE: {predictedOrbit.Periapsis}, V: {predictedOrbit.Velocity}, P: {predictedOrbit.PositionVector}");
+                    {
+                        var predictedOrbitType = predictedOrbit.IsEscapeTrajectory ? "Escape" : "Bound";
+                        var predictedApoapsisText = predictedOrbit.IsEscapeTrajectory ? "N/A (escape)" : predictedOrbit.Apoapsis.ToString();
+                        DebugText.Add($"PredOrbit: Type: {predictedOrbitType}, AP: {predictedApoapsisText}, PE: {predictedOrbit.Periapsis}, V: {predictedOrbit.Velocity}, P: {predictedOrbit.PositionVector}");
+                    }
                 }
             }
 
-            // ship square
-            Color shipColor = ship.Status.IsSelected ? Color.Gold : Color.LimeGreen;
+            // ship square: uncontrolled ships render as light gray
+            Color shipColor;
+            if (!ship.Status.IsControllable)
+            {
+                shipColor = Color.LightGray;
+            }
+            else
+            {
+                shipColor = ship.Status.IsSelected ? Color.Gold : Color.LimeGreen;
+            }
             SpriteBatch.DrawRectangle(position.X - (size / 2 ), position.Y - (size / 2 ), size , size , shipColor, 1.5f);
             
             // seperation circles
@@ -120,7 +150,7 @@ public class SimulationRenderer
 
     private void DrawStations(List<Station> stations)
     {
-        int size = 7;
+        int size = 4;
         foreach (Station station in stations)
         {
             Vector2 position = station.Orbit.PositionVector / Scale;
@@ -129,19 +159,36 @@ public class SimulationRenderer
             DrawOrbit(orbit, Color.White);
 
             // ship square
-            Color shipColor = Color.Red;
-            SpriteBatch.DrawRectangle(position.X - (size / 2), position.Y - (size / 2), size, size, shipColor, 1.5f);
+            Color shipColor = Color.AliceBlue;
+            SpriteBatch.DrawCircle(position.X, position.Y, size, 36, shipColor, 1.5f);
         }
     }
 
     private void DrawOrbit(Orbit orbit, Color color)
     {
-        var start = orbit.GetPositionAtAngle(0f.ToRadians()) / Scale;
+        if (orbit.IsEscapeTrajectory)
+        {
+            var maxAngle = orbit.GetHyperbolicTrueAnomalyLimit() - 0.01d;
+            var start = orbit.GetPositionAtAngle(-maxAngle) / Scale;
+            const int segments = 180;
+
+            for (int i = 1; i <= segments; i++)
+            {
+                var angle = -maxAngle + ((2d * maxAngle) * i / segments);
+                var end = orbit.GetPositionAtAngle(angle) / Scale;
+                SpriteBatch.DrawLine(start, end, color, 1f / Camera.Zoom);
+                start = end;
+            }
+
+            return;
+        }
+
+        var startElliptic = orbit.GetPositionAtAngle(0d) / Scale;
         for (int i = 2; i <= 360; i += 2)
         {
-            var end = orbit.GetPositionAtAngle(((float)i).ToRadians()) / Scale;
-            SpriteBatch.DrawLine(start, end, color, 1f / Camera.Zoom);
-            start = end;
+            var end = orbit.GetPositionAtAngle(((double)i).ToRadians()) / Scale;
+            SpriteBatch.DrawLine(startElliptic, end, color, 1f / Camera.Zoom);
+            startElliptic = end;
         };
     }
 

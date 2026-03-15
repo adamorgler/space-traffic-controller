@@ -1,5 +1,7 @@
 ﻿using SpaceTrafficController.Simulation;
 using SpaceTrafficController.Simulation.OrbitingObjects;
+using SpaceTrafficController.Core;
+using SpaceTrafficController.Utilities;
 using System.Numerics;
 
 namespace SpaceTrafficController.GameObjects;
@@ -13,14 +15,15 @@ public class Ship : HasOrbit
     public string Name { get; set; }
     public ShipState State { get; set; }
     public ShipStatus Status { get; set; } = new();
+    public DVector2 PositionD { get { return Orbit.PositionVectorD; } }
     public Vector2 Position { get { return Orbit.PositionVector; } }
     public ManeuverNode ManeuverNode { get; set; }
 
-    public override void UpdateExtension(float gameTime)
+    public override void UpdateExtension(double gameTime)
     {
         CheckIfManueverNodeIsCrossed(gameTime);
     }
-    private void CheckIfManueverNodeIsCrossed(float gameTime)
+    private void CheckIfManueverNodeIsCrossed(double gameTime)
     {
         if (ManeuverNode is null || !ManeuverNode.IsConfirmed)
             return;
@@ -32,6 +35,18 @@ public class Ship : HasOrbit
             Orbit = predictedOrbit;
             ManeuverNode = null;
         }
+    }
+
+    public bool ShouldDespawn()
+    {
+        if (!Orbit.IsEscapeTrajectory)
+        {
+            return false;
+        }
+
+        // Despawn when escape trajectory passes beyond the control altitude
+        var controlRadius = GameState.CentralBody.ControlRadius;
+        return PositionD.Length() >= controlRadius;
     }
 }
 
@@ -46,4 +61,5 @@ public class ShipStatus
 {
     public bool IsSelected { get; set; } = false;
     public bool IsEncroached { get; set; } = false;
+    public bool IsControllable { get; set; } = true;
 }

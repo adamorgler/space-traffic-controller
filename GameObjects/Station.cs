@@ -18,7 +18,7 @@ public class Station : HasOrbit
 
     public int NumberOfRunways { get; set; }
 
-    public override void UpdateExtension(float timeStep)
+    public override void UpdateExtension(double timeStep)
     {
         return;
     }

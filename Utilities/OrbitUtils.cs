@@ -9,16 +9,15 @@ public static class OrbitUtils
 {
     public static OrbitPosition? GetOrbitIntersectionNearMouse(Orbit orbit, Vector2 mousePos, float threshold = 20f)
     {
-        var mouseTheta = MathF.Atan2(mousePos.Y, mousePos.X);
+        var mouseTheta = Math.Atan2(mousePos.Y, mousePos.X);
         var mouseRadius = mousePos.Length();
 
         var orbitalAngle = mouseTheta - orbit.ArgumentOfPeriapsis;
         var orbitRadius = orbit.GetRadiusFromFoci(orbitalAngle) / GameConstants.RenderingScale;
-        var distance = MathF.Abs(mouseRadius - orbitRadius);
+        var distance = Math.Abs(mouseRadius - orbitRadius);
         if (distance < threshold)
         {
-            Vector2 screenPos = MathUtils.PolarToCartesian(mouseTheta, orbitRadius);
-            screenPos.Rotate(orbit.ArgumentOfPeriapsis);
+            Vector2 screenPos = MathUtils.PolarToCartesian(mouseTheta, orbitRadius).ToVector2();
             return new OrbitPosition
             {
                 TrueAnomaly = orbitalAngle,
@@ -31,43 +30,81 @@ public static class OrbitUtils
 
     public static Orbit GetOrbitFromStateVectors(Vector2 pos, Vector2 velocity)
     {
-        float mu = PhysicalConstants.G * GameState.CentralBody.Mass; // μ = GM
+        return GetOrbitFromStateVectors(DVector2.FromVector2(pos), DVector2.FromVector2(velocity));
+    }
+
+    public static Orbit GetOrbitFromStateVectors(DVector2 pos, DVector2 velocity)
+    {
+        double mu = PhysicalConstants.G * GameState.CentralBody.Mass; // μ = GM
 
         var r = pos.Length();
         var v = velocity.Length();
 
-        // Specific angular momentum (scalar in 2D)
-        float h = pos.X * velocity.Y - pos.Y * velocity.X;
+        if (!double.IsFinite(r) || !double.IsFinite(v) || r <= 0d || mu <= 0d)
+        {
+            var safeRadius = Math.Max(1d, GameState.CentralBody.Radius + 1d);
+            var altitude = safeRadius - GameState.CentralBody.Radius;
+            return new Orbit(altitude, altitude, 0d, 0d);
+        }
+
+        double h = (pos.X * velocity.Y) - (pos.Y * velocity.X);
 
         // Eccentricity vector
-        Vector2 eVec = ((v * v - mu / r) * pos - Vector2.Dot(pos, velocity) * velocity) / mu;
-        float e = eVec.Length();
-
-        // Semi-major axis from vis-viva equation
-        float a = 1 / ((2 / r) - (v * v / mu));
+        DVector2 eVec = ((((v * v) - (mu / r)) * pos) - (DVector2.Dot(pos, velocity) * velocity)) / mu;
+        double e = Math.Max(0d, eVec.Length());
 
         // True anomaly (angle between position and eccentricity vector)
-        float cosTheta = Vector2.Dot(eVec, pos) / (e * r);
-        cosTheta = cosTheta.Clamp(-1.0f, 1.0f); // avoid NaNs
-        float trueAnomaly = MathF.Acos(cosTheta);
-        if (Vector2.Dot(pos, velocity) < 0)
-            trueAnomaly = 2 * MathF.PI - trueAnomaly;
+        double cosTheta;
+        if (e <= 1e-12)
+        {
+            cosTheta = pos.X / r;
+        }
+        else
+        {
+            cosTheta = DVector2.Dot(eVec, pos) / (e * r);
+        }
+
+        cosTheta = cosTheta.Clamp(-1d, 1d); // avoid NaNs
+        double trueAnomaly = Math.Acos(cosTheta);
+        if (DVector2.Dot(pos, velocity) < 0d)
+        {
+            trueAnomaly = (2d * Math.PI) - trueAnomaly;
+        }
 
         // Argument of periapsis (angle between x-axis and eccentricity vector)
-        float argumentOfPeriapsis = MathF.Atan2(eVec.Y, eVec.X);
+        double argumentOfPeriapsis = e <= 1e-12 ? 0d : Math.Atan2(eVec.Y, eVec.X);
 
-        // Periapsis and apoapsis
-        float periapsis = a * (1 - e) - GameState.CentralBody.Radius;
-        float apoapsis = a * (1 + e) - GameState.CentralBody.Radius;
+        // Numerically stable ellipse parameters from semi-latus rectum p.
+        // This avoids instability when energy is near parabolic and a gets very large.
+        double p = (h * h) / mu;
+        if (!double.IsFinite(p) || p <= 0d)
+        {
+            p = r;
+        }
 
-        return new Orbit(apoapsis, periapsis, argumentOfPeriapsis, trueAnomaly);
+        double periRadius = p / (1d + e);
+        double apoRadius = e < 1d ? p / (1d - e) : double.PositiveInfinity;
+
+        double periapsis = periRadius - GameState.CentralBody.Radius;
+        double apoapsis = apoRadius - GameState.CentralBody.Radius;
+
+        var invalidPeriapsis = double.IsNaN(periapsis) || periapsis < -GameState.CentralBody.Radius;
+        var invalidApoapsis = double.IsNaN(apoapsis) || apoapsis < periapsis;
+
+        if (invalidPeriapsis || invalidApoapsis)
+        {
+            double altitude = Math.Max(1d, r - GameState.CentralBody.Radius);
+            return new Orbit(altitude, altitude, argumentOfPeriapsis, trueAnomaly, e);
+        }
+
+        return new Orbit(apoapsis, periapsis, argumentOfPeriapsis, trueAnomaly, e);
     }
 }
 
 
 public class OrbitPosition
 {
-    public float TrueAnomaly { get; set; }
+    public double TrueAnomaly { get; set; }
     public Vector2 ScreenPosition { get; set; }
 
 }

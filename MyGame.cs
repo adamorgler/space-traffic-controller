@@ -50,7 +50,7 @@ namespace SpaceTrafficController
             Fonts.DebugFont = Content.Load<SpriteFont>("DebugFont");
             Fonts.ManueverNode = Content.Load<SpriteFont>("ManueverNode");
 
-            Test1();
+            Test3();
         }
 
         protected override void Update(GameTime gameTime)
@@ -94,8 +94,8 @@ namespace SpaceTrafficController
 
         private void Test1()
         {
-            GameState.OrbitingObjects.Add(new Ship(new Orbit(600000, 600000, 180f.ToRadians(), 0f.ToRadians())));
-            GameState.OrbitingObjects.Add(new Station(new Orbit(600000, 600000, 190f.ToRadians(), 0f.ToRadians())));
+            GameState.OrbitingObjects.Add(new Ship(new Orbit(600000d, 600000d, 180d.ToRadians(), 0d.ToRadians())));
+            GameState.OrbitingObjects.Add(new Station(new Orbit(600000d, 600000d, 190d.ToRadians(), 0d.ToRadians())));
         }
 
         private void Test2()
@@ -110,11 +110,35 @@ namespace SpaceTrafficController
                         new Orbit(
                             r.Next(minOrbit, maxOrbit),
                             r.Next(minOrbit, maxOrbit),
-                            (((float)r.NextDouble()) * 360).ToRadians(),
-                            (((float)r.NextDouble()) * 360).ToRadians())
+                            (r.NextDouble() * 360d).ToRadians(),
+                            (r.NextDouble() * 360d).ToRadians())
                         )
                     );
             }
+        }
+
+        private void Test3()
+        {
+            GameState.OrbitingObjects.Clear();
+
+            const double controlAltitude = 600000d;
+
+            GameState.OrbitingObjects.Add(new Ship(new Orbit(controlAltitude, controlAltitude, 180d.ToRadians(), 0d.ToRadians()))
+            {
+                Name = "Control Ship"
+            });
+
+            var escapeOrbit = new Orbit(
+                apoapsis: double.PositiveInfinity,
+                periapsis: controlAltitude,
+                argumentOfPeriapsis: 0d.ToRadians(),
+                trueAnomaly: 0d.ToRadians(),
+                eccentricity: 1.1d);
+
+            GameState.OrbitingObjects.Add(new Ship(escapeOrbit)
+            {
+                Name = "Escape Test Ship"
+            });
         }
     }
 }

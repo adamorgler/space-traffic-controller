@@ -15,11 +15,11 @@ public abstract class HasOrbit
 
     public Orbit Orbit { get; set; }
 
-    public void Update(float timeStep)
+    public void Update(double timeStep)
     {
         Orbit.Update(timeStep);
         UpdateExtension(timeStep);
     }
 
-    public abstract void UpdateExtension(float timeStep);
+    public abstract void UpdateExtension(double timeStep);
 }

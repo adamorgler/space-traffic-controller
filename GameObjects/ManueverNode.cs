@@ -10,24 +10,24 @@ namespace SpaceTrafficController.GameObjects;
 public class ManeuverNode
 {
 
-    public float TrueAnomaly { get; set; }
+    public double TrueAnomaly { get; set; }
     public Vector2 ScreenPosition { get; set; }
 
-    public float ProgradeDeltaV { get; set; } = 0f;
-    public float NormalDeltaV { get; set; } = 0f;
+    public double ProgradeDeltaV { get; set; } = 0d;
+    public double NormalDeltaV { get; set; } = 0d;
     public bool IsConfirmed { get; set; } = false;
     public bool IsDragged { get; set; } = false;
 
     public Orbit GetPredictedOrbit(Orbit orbit)
     {
-        if (ProgradeDeltaV == 0 && NormalDeltaV == 0)
+        if (ProgradeDeltaV == 0d && NormalDeltaV == 0d)
             return null;
 
-        var velocity = orbit.GetVelocityAtAngle(TrueAnomaly);
-        var position = orbit.GetPositionAtAngle(TrueAnomaly);
+        var velocity = orbit.GetVelocityAtAngleD(TrueAnomaly);
+        var position = orbit.GetPositionAtAngleD(TrueAnomaly);
 
-        var prograde = Vector2.Normalize(velocity);
-        var normal = new Vector2(-prograde.Y, prograde.X);
+        var prograde = DVector2.Normalize(velocity);
+        var normal = new DVector2(-prograde.Y, prograde.X);
 
         var deltaV = prograde * ProgradeDeltaV + normal * NormalDeltaV;
         var newVelocity = velocity + deltaV;
@@ -35,7 +35,7 @@ public class ManeuverNode
         return OrbitUtils.GetOrbitFromStateVectors(position, newVelocity);
     }
 
-    public float GetTimeToNode(Orbit orbit)
+    public double GetTimeToNode(Orbit orbit)
     {
         return orbit.TimeToTrueAomaly(TrueAnomaly);
     }

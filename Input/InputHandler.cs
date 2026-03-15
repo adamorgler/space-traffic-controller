@@ -228,12 +228,12 @@ public class InputHandler
         Vector2 dragVector = currentMouseWorldPos - DragStartMouseWorldPos;
         node.DragOffset = dragVector.ToNumerics();
 
-        float distanceFromStart = dragVector.Length(); // used to scale sensitivity
-        float baseRate = 100f; // base rate of delta-V change per screen inch-ish
-        float speedMultiplier = MathF.Max(0.2f, distanceFromStart); // prevents zero-speed, tweak as needed
+        double distanceFromStart = dragVector.Length(); // used to scale sensitivity
+        double baseRate = 100d; // base rate of delta-V change per screen inch-ish
+        double speedMultiplier = Math.Max(0.2d, distanceFromStart); // prevents zero-speed, tweak as needed
 
-        float delta = Vector2.Dot(dragVector, node.GetDirectionVectorForDrag(CurrentManeuverDrag)) * baseRate * 0.001f * speedMultiplier;
-        if (delta == 0)
+        double delta = Vector2.Dot(dragVector, node.GetDirectionVectorForDrag(CurrentManeuverDrag)) * baseRate * 0.001d * speedMultiplier;
+        if (delta == 0d)
             return;
 
         switch (CurrentManeuverDrag)

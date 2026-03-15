@@ -25,19 +25,37 @@ public class GameState
             Radius = PhysicalConstants.RADIUS_TITAN,
             Mass = PhysicalConstants.MASS_TITAN,
             BaseAtmosphereDensity = PhysicalConstants.ATMOS_BASE_DENSITY_TITAN,
-            AtmosphereLayers = GenerateAtmosphereLayers()
+            AtmosphereLayers = GenerateAtmosphereLayers(),
+            ControlAltitudeMeters = 5000e3,
         };
         OrbitingObjects = new List<HasOrbit>();
     }
 
     public void Update(GameTime gameTime)
     {
-        var timeStep = ((float)gameTime.ElapsedGameTime.TotalSeconds) * Warp;
+        var timeStep = gameTime.ElapsedGameTime.TotalSeconds * Warp;
 
         foreach (var orbiter in OrbitingObjects)
         {
             orbiter.Update(timeStep);
         }
+
+        // Update ship controllability based on control altitude
+        var controlRadius = CentralBody.ControlRadius;
+        foreach (var ship in Ships)
+        {
+            var dist = ship.PositionD.Length();
+            if (!ship.Orbit.IsEscapeTrajectory && dist >= controlRadius)
+            {
+                ship.Status.IsControllable = false;
+            }
+            else
+            {
+                ship.Status.IsControllable = true;
+            }
+        }
+
+        RemoveEscapedShips();
         CheckShipSeperation();
     }
 
@@ -126,24 +144,43 @@ public class GameState
         }
     }
 
+    private void RemoveEscapedShips()
+    {
+        var escapedShips = Ships.Where(ship => ship.ShouldDespawn()).ToList();
+        if (escapedShips.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var ship in escapedShips)
+        {
+            if (SelectedShip == ship)
+            {
+                SelectedShip = null;
+            }
+
+            OrbitingObjects.Remove(ship);
+        }
+    }
+
     private static List<AtmosphereLayer> GenerateAtmosphereLayers()
     {
         const int layerCount = 5;
-        const float topOfAtmosphere = PhysicalConstants.ATMOS_THICKNESS_TITAN;
-        const float baseDensity = PhysicalConstants.ATMOS_BASE_DENSITY_TITAN; // kg/m³ at surface
-        const float basePressure = PhysicalConstants.ATMOS_BASE_PRESSURE_TITAN; // Pascals at surface
+        const double topOfAtmosphere = PhysicalConstants.ATMOS_THICKNESS_TITAN;
+        const double baseDensity = PhysicalConstants.ATMOS_BASE_DENSITY_TITAN; // kg/m³ at surface
+        const double basePressure = PhysicalConstants.ATMOS_BASE_PRESSURE_TITAN; // Pascals at surface
 
         List<AtmosphereLayer> layers = new();
 
         var layerThickness = topOfAtmosphere / layerCount;
         for (int i = 0; i < layerCount; i++)
         {
-            float layerAltitude = layerThickness * i;
-            float normalizedAltitude = layerAltitude / topOfAtmosphere;
+            double layerAltitude = layerThickness * i;
+            double normalizedAltitude = layerAltitude / topOfAtmosphere;
 
             // Simplified exponential density and pressure decay
-            float density = baseDensity * MathF.Exp(-normalizedAltitude);
-            float pressure = basePressure * MathF.Exp(-normalizedAltitude);
+            double density = baseDensity * Math.Exp(-normalizedAltitude);
+            double pressure = basePressure * Math.Exp(-normalizedAltitude);
 
             layers.Add(new AtmosphereLayer
             {

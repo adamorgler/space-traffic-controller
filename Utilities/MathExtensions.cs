@@ -37,6 +37,11 @@ public static class MathExtensions
         return (value < min) ? min : (value > max) ? max : value;
     }
 
+    public static double Clamp(this double value, double min, double max)
+    {
+        return (value < min) ? min : (value > max) ? max : value;
+    }
+
     public static Microsoft.Xna.Framework.Vector2 ToXna(this System.Numerics.Vector2 v)
     => new Microsoft.Xna.Framework.Vector2(v.X, v.Y);
 
