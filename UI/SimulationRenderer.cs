@@ -66,8 +66,8 @@ public class SimulationRenderer
     private void DrawControlAltitude(CelestialBody body)
     {
         var radius = (float)((body.Radius + body.ControlAltitudeMeters) / Scale);
-        var dashDeg = 6d;
-        var gapDeg = 6d;
+        var dashDeg = 3d;
+        var gapDeg = 1d;
         for (double angle = 0d; angle < 360d; angle += dashDeg + gapDeg)
         {
             var start = (angle).ToRadians();
@@ -131,19 +131,22 @@ public class SimulationRenderer
 
             // ship square: uncontrolled ships render as light gray
             Color shipColor;
+            Color seperationCircleColor;
             if (!ship.Status.IsControllable)
             {
                 shipColor = Color.LightGray;
+                seperationCircleColor = Color.LightGray;
             }
             else
             {
                 shipColor = ship.Status.IsSelected ? Color.Gold : Color.LimeGreen;
+                seperationCircleColor = ship.Status.IsEncroached ? Color.Red : Color.Green;
+
             }
             SpriteBatch.DrawRectangle(position.X - (size / 2 ), position.Y - (size / 2 ), size , size , shipColor, 1.5f);
             
             // seperation circles
             CircleF seperationCircle = new CircleF() { Center = position, Radius = GameConstants.ShipSepration / 2 / Scale };
-            Color seperationCircleColor = ship.Status.IsEncroached ? Color.Red : Color.Green;
             SpriteBatch.DrawCircle(seperationCircle, 20, seperationCircleColor, 1.5f);
         }
     }

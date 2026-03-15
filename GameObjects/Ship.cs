@@ -1,4 +1,5 @@
-﻿using SpaceTrafficController.Simulation;
+﻿using System;
+using SpaceTrafficController.Simulation;
 using SpaceTrafficController.Simulation.OrbitingObjects;
 using SpaceTrafficController.Core;
 using SpaceTrafficController.Utilities;
@@ -30,7 +31,8 @@ public class Ship : HasOrbit
         var predictedOrbit = ManeuverNode.GetPredictedOrbit(Orbit);
         if (predictedOrbit is null)
             return;
-        if (gameTime >= ManeuverNode.GetTimeToNode(Orbit))
+        var timeToNode = ManeuverNode.GetTimeToNode(Orbit);
+        if (double.IsFinite(timeToNode) && gameTime >= timeToNode)
         {
             Orbit = predictedOrbit;
             ManeuverNode = null;

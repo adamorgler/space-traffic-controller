@@ -1,4 +1,5 @@
 ﻿using SpaceTrafficController.Simulation;
+using SpaceTrafficController.Core;
 using SpaceTrafficController.UI;
 using SpaceTrafficController.Utilities;
 using System;
@@ -37,6 +38,58 @@ public class ManeuverNode
 
     public double GetTimeToNode(Orbit orbit)
     {
+        if (orbit.IsEscapeTrajectory)
+        {
+            // Hyperbolic/escape: solve dt = integral(r^2 / h dθ) from current to target.
+            // If target is behind current anomaly, ship will not return on escape.
+            var current = orbit.TrueAnomaly;
+            var target = TrueAnomaly;
+
+            if (target <= current)
+            {
+                return double.PositiveInfinity;
+            }
+
+            var mu = PhysicalConstants.G * GameState.CentralBody.Mass;
+            var h = Math.Sqrt(mu * orbit.SemiLatusRectum);
+            if (!double.IsFinite(h) || h <= 0d)
+            {
+                return double.PositiveInfinity;
+            }
+
+            // Simpson integration for stable/fast estimate.
+            const int n = 120; // must be even
+            var delta = (target - current) / n;
+            var sum = 0d;
+
+            for (int i = 0; i <= n; i++)
+            {
+                var theta = current + (i * delta);
+                var r = orbit.GetRadiusFromFoci(theta);
+                if (!double.IsFinite(r) || r <= 0d)
+                {
+                    return double.PositiveInfinity;
+                }
+
+                var f = (r * r) / h;
+                if (i == 0 || i == n)
+                {
+                    sum += f;
+                }
+                else if ((i & 1) == 0)
+                {
+                    sum += 2d * f;
+                }
+                else
+                {
+                    sum += 4d * f;
+                }
+            }
+
+            var dt = (delta / 3d) * sum;
+            return dt > 0d && double.IsFinite(dt) ? dt : double.PositiveInfinity;
+        }
+
         return orbit.TimeToTrueAomaly(TrueAnomaly);
     }
 

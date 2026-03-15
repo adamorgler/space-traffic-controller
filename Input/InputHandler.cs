@@ -161,11 +161,17 @@ public class InputHandler
                 var orbitPos = OrbitUtils.GetOrbitIntersectionNearMouse(selectedShip.Orbit, mousePos.ToNumerics());
                 if (orbitPos is not null && manueverNode is null)
                 {
-                    selectedShip.ManeuverNode = new ManeuverNode()
+                    // Disallow creating maneuver nodes at positions outside the control radius
+                    var radiusAtPos = selectedShip.Orbit.GetRadiusFromFoci(orbitPos.TrueAnomaly);
+                    var controlRadius = GameState.CentralBody.ControlRadius;
+                    if (radiusAtPos < controlRadius)
                     {
-                        TrueAnomaly = orbitPos.TrueAnomaly,
-                        ScreenPosition = orbitPos.ScreenPosition,
-                    };
+                        selectedShip.ManeuverNode = new ManeuverNode()
+                        {
+                            TrueAnomaly = orbitPos.TrueAnomaly,
+                            ScreenPosition = orbitPos.ScreenPosition,
+                        };
+                    }
                     return;
                 }
             }
@@ -205,9 +211,14 @@ public class InputHandler
             var orbitPos = OrbitUtils.GetOrbitIntersectionNearMouse(ship.Orbit, mousePos.ToNumerics(), float.MaxValue);
             if (orbitPos is not null)
             {
-                ship.ManeuverNode.TrueAnomaly = orbitPos.TrueAnomaly;
-                ship.ManeuverNode.ScreenPosition = orbitPos.ScreenPosition;
-                ship.ManeuverNode.IsConfirmed = false;
+                var radiusAtPos = ship.Orbit.GetRadiusFromFoci(orbitPos.TrueAnomaly);
+                var controlRadius = GameState.CentralBody.ControlRadius;
+                if (radiusAtPos < controlRadius)
+                {
+                    ship.ManeuverNode.TrueAnomaly = orbitPos.TrueAnomaly;
+                    ship.ManeuverNode.ScreenPosition = orbitPos.ScreenPosition;
+                    ship.ManeuverNode.IsConfirmed = false;
+                }
             }
         }
     }

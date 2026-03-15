@@ -26,7 +26,7 @@ public class GameState
             Mass = PhysicalConstants.MASS_TITAN,
             BaseAtmosphereDensity = PhysicalConstants.ATMOS_BASE_DENSITY_TITAN,
             AtmosphereLayers = GenerateAtmosphereLayers(),
-            ControlAltitudeMeters = 5000e3,
+            ControlAltitudeMeters = 2500e3,
         };
         OrbitingObjects = new List<HasOrbit>();
     }

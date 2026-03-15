@@ -17,6 +17,8 @@ public abstract class HasOrbit
 
     public void Update(double timeStep)
     {
+        // record previous anomaly so extensions can detect crossings
+        Orbit.PreviousTrueAnomaly = Orbit.TrueAnomaly;
         Orbit.Update(timeStep);
         UpdateExtension(timeStep);
     }

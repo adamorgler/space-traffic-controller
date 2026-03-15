@@ -32,6 +32,8 @@ public class Orbit
     public double Periapsis { get; init; }
     public double ArgumentOfPeriapsis { get; set; } // angle of ellipse in radians
     public double TrueAnomaly { get; set; } // position in orbit in radians
+    // previous true anomaly recorded before the most recent update
+    public double PreviousTrueAnomaly { get; set; }
     public double? ExplicitEccentricity { get; init; }
     public bool IsEscapeTrajectory => ExplicitEccentricity is > 1d || double.IsPositiveInfinity(Apoapsis);
 
