@@ -16,6 +16,7 @@ public abstract class HasOrbit
     }
 
     public Orbit Orbit { get; set; }
+    public bool IsSelected { get; set; }
     public DVector2 PreviousPositionD { get; private set; }
 
     public void Update(double timeStep)

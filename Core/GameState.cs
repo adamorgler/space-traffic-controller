@@ -15,7 +15,12 @@ public class GameState
     public List<HasOrbit> OrbitingObjects { get; set; }
     public List<Ship> Ships { get { return OrbitingObjects.OfType<Ship>().ToList(); } }
     public List<Station> Stations { get { return OrbitingObjects.OfType<Station>().ToList(); } }
-    public Ship SelectedShip { get; set; }
+    public HasOrbit SelectedOrbitingObject { get; set; }
+    public Ship SelectedShip
+    {
+        get => SelectedOrbitingObject as Ship;
+        set => SelectedOrbitingObject = value;
+    }
 
     public void Init()
     {
@@ -154,9 +159,9 @@ public class GameState
 
         foreach (var ship in despawnedShips)
         {
-            if (SelectedShip == ship)
+            if (SelectedOrbitingObject == ship)
             {
-                SelectedShip = null;
+                SelectedOrbitingObject = null;
             }
 
             OrbitingObjects.Remove(ship);

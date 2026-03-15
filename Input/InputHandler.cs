@@ -24,6 +24,9 @@ public class InputHandler
     private ManeuverDragType CurrentManeuverDrag = ManeuverDragType.None;
     private Vector2 DragStartMouseWorldPos;
 
+    private bool _followingShip = false;
+    private Vector2 _cameraFollowOffset = Vector2.Zero;
+
     public InputHandler(Camera2D camera, GameState gameState)
     {
         Camera = camera;
@@ -43,6 +46,33 @@ public class InputHandler
         HandleLeftClick();
         HandleLeftDrag();
         HandleManeuverDeltaVDrag();
+
+        if (_followingShip && GameState.SelectedOrbitingObject is not null)
+        {
+            var selectedObjectPos = GameState.SelectedOrbitingObject.Orbit.PositionVector / GameConstants.RenderingScale;
+            var cameraFollowPos = selectedObjectPos + _cameraFollowOffset;
+            float targetRotation = Camera.Rotation;
+
+            var velocity = GameState.SelectedOrbitingObject.Orbit.VelocityVector;
+            if (velocity.LengthSquared() > 1e-6f)
+            {
+                var tangentAngle = MathF.Atan2(velocity.Y, velocity.X);
+
+                float additionalOffsetRotation = 0f;
+                if (_cameraFollowOffset.LengthSquared() > 1e-6f
+                    && selectedObjectPos.LengthSquared() > 1e-6f
+                    && cameraFollowPos.LengthSquared() > 1e-6f)
+                {
+                    var selectedAngle = MathF.Atan2(selectedObjectPos.Y, selectedObjectPos.X);
+                    var cameraAngle = MathF.Atan2(cameraFollowPos.Y, cameraFollowPos.X);
+                    additionalOffsetRotation = MathHelper.WrapAngle(cameraAngle - selectedAngle);
+                }
+
+                targetRotation = -(tangentAngle + additionalOffsetRotation);
+            }
+
+            Camera.SetPose(cameraFollowPos, targetRotation);
+        }
 
         if (MouseState.LeftButton == ButtonState.Released && PrevMouseState.LeftButton == ButtonState.Pressed)
         {
@@ -83,7 +113,23 @@ public class InputHandler
         if (KeyboardState.IsKeyDown(Keys.A) || KeyboardState.IsKeyDown(Keys.Left)) move.X -= moveSpeed;
         if (KeyboardState.IsKeyDown(Keys.D) || KeyboardState.IsKeyDown(Keys.Right)) move.X += moveSpeed;
 
-        Camera.Move(move);
+        if (move != Vector2.Zero)
+        {
+            var inputToWorldRotation = Matrix.CreateRotationZ(-Camera.Rotation);
+            move = Vector2.Transform(move, inputToWorldRotation);
+        }
+
+        if (move != Vector2.Zero)
+        {
+            if (_followingShip && GameState.SelectedOrbitingObject is not null)
+            {
+                _cameraFollowOffset += move;
+            }
+            else
+            {
+                Camera.Move(move);
+            }
+        }
     }
 
     private void HandleCameraZoom()
@@ -176,21 +222,34 @@ public class InputHandler
                 }
             }
 
-            var ships = GameState.Ships.OrderBy(x => Vector2.Distance(mousePos, x.Position / GameConstants.RenderingScale)).ToList();
+            var orbitingObjects = GameState.OrbitingObjects
+                .OrderBy(x => Vector2.Distance(mousePos, x.Orbit.PositionVector / GameConstants.RenderingScale))
+                .ToList();
             float clickRadius = 10f;
-            foreach (var ship in ships)
+            foreach (var orbitingObject in orbitingObjects)
             {
-                if (Vector2.Distance(mousePos, ship.Position / GameConstants.RenderingScale) < clickRadius && !ship.Status.IsSelected)
+                if (Vector2.Distance(mousePos, orbitingObject.Orbit.PositionVector / GameConstants.RenderingScale) < clickRadius)
                 {
-                    if (GameState.SelectedShip is not null)
-                        GameState.SelectedShip.Status.IsSelected = false;
-                    ship.Status.IsSelected = true;
-                    GameState.SelectedShip = ship;
+                    if (GameState.SelectedOrbitingObject is not null && GameState.SelectedOrbitingObject != orbitingObject)
+                        GameState.SelectedOrbitingObject.IsSelected = false;
+
+                    orbitingObject.IsSelected = true;
+                    GameState.SelectedOrbitingObject = orbitingObject;
+                    _followingShip = true;
+                    _cameraFollowOffset = Vector2.Zero;
+                    Camera.StartSelectionTransition();
                     return;
                 }
-                ship.Status.IsSelected = false;
             }
-            GameState.SelectedShip = null;
+
+            if (GameState.SelectedOrbitingObject is not null)
+                GameState.SelectedOrbitingObject.IsSelected = false;
+
+            GameState.SelectedOrbitingObject = null;
+            _followingShip = false;
+            _cameraFollowOffset = Vector2.Zero;
+            Camera.StartSelectionTransition();
+            Camera.SetPose(Camera.Position, 0f);
             if (DraggedNode is not null)
             {
                 DraggedNode.IsDragged = false;

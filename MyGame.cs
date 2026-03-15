@@ -1,6 +1,7 @@
 ﻿using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
+using SharpDX.MediaFoundation;
 using SpaceTrafficController.Core;
 using SpaceTrafficController.GameObjects;
 using SpaceTrafficController.Input;
@@ -60,6 +61,7 @@ namespace SpaceTrafficController
 
             GameState.Update(gameTime);
             InputHandler.Update(gameTime);
+            Camera.Update(gameTime);
 
             base.Update(gameTime);
         }
@@ -94,25 +96,28 @@ namespace SpaceTrafficController
 
         private void Test1()
         {
-            var station = new Station(new Orbit(600000d, 600000d, 185d.ToRadians(), 0d.ToRadians()))
+            var stationAlt = 750e3;
+            var stationAOP = 180d;
+
+            var station = new Station(new Orbit(stationAlt, stationAlt, stationAOP.ToRadians(), 0d.ToRadians()))
             {
                 Name = "Test Station"
             };
 
-            var ship1 = new Ship(new Orbit(560000d, 560000d, 175d.ToRadians(), 0d.ToRadians()))
+            var arrivialShip1 = new Ship(new Orbit(stationAlt - 40e3, stationAlt - 40e3, (stationAOP - 10).ToRadians(), 0d.ToRadians()))
             {
-                Name = "Test Ship1",
+                Name = "Arrivial Ship1",
                 Destination = new StationDestination(station)
             };
 
-            var ship2 = new Ship(new Orbit(640000d, 640000d, 195d.ToRadians(), 0d.ToRadians()))
+            var arrivialShip2 = new Ship(new Orbit(stationAlt+ 40e3, stationAlt + 40e3, (stationAOP + 10).ToRadians(), 0d.ToRadians()))
             {
-                Name = "Test Ship2",
+                Name = "Arrivial Ship2",
                 Destination = new StationDestination(station)
             };
 
-            GameState.OrbitingObjects.Add(ship1);
-            GameState.OrbitingObjects.Add(ship2);
+            GameState.OrbitingObjects.Add(arrivialShip1);
+            GameState.OrbitingObjects.Add(arrivialShip2);
             GameState.OrbitingObjects.Add(station);
         }
 

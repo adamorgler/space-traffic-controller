@@ -45,7 +45,7 @@ public class SimulationRenderer
         BasicEffect.View = Camera.GetTransform();
 
         DrawBody();
-        DrawStations(gameState.Stations);
+        DrawStations(gameState.Stations, gameState.SelectedShip);
         DrawShips(gameState.Ships);
     }
 
@@ -59,8 +59,31 @@ public class SimulationRenderer
         var body = GameState.CentralBody;
         int radius = (int) (body.Radius / Scale);
         SpriteBatch.DrawCircle(new Vector2(0, 0), radius, 360, Color.Wheat, radius);
+        DrawPlanetLongitudeLines(body);
+        DrawPlanetOutline(body);
         DrawAtmosphere(body);
         DrawControlAltitude(body);
+    }
+
+    private void DrawPlanetLongitudeLines(CelestialBody body)
+    {
+        var radius = (float)(body.Radius / Scale);
+        var thickness = 2.5f / Camera.Zoom;
+        const int longitudeCount = 8;
+
+        for (int i = 0; i < longitudeCount; i++)
+        {
+            var angle = MathHelper.TwoPi * (i / (float)longitudeCount);
+            var end = new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * radius;
+            var color = i == 0 ? Color.Red : Color.Black * 0.9f;
+            SpriteBatch.DrawLine(Vector2.Zero, end, color, thickness);
+        }
+    }
+
+    private void DrawPlanetOutline(CelestialBody body)
+    {
+        var radius = (float)(body.Radius / Scale);
+        SpriteBatch.DrawCircle(Vector2.Zero, radius, 96, Color.Black * 0.9f, 3f / Camera.Zoom);
     }
 
     private void DrawControlAltitude(CelestialBody body)
@@ -101,7 +124,7 @@ public class SimulationRenderer
             Vector2 position = ship.Orbit.PositionVector / Scale;
 
             // ship selected
-            if (ship.Status.IsSelected)
+            if (ship.IsSelected)
             {
                 var orbit = ship.Orbit;
                 DrawOrbit(orbit, Color.White);
@@ -139,7 +162,7 @@ public class SimulationRenderer
             }
             else
             {
-                shipColor = ship.Status.IsSelected ? Color.Gold : Color.LimeGreen;
+                shipColor = ship.IsSelected ? Color.Gold : Color.LimeGreen;
                 seperationCircleColor = ship.Status.IsEncroached ? Color.Red : Color.Green;
 
             }
@@ -151,24 +174,30 @@ public class SimulationRenderer
         }
     }
 
-    private void DrawStations(List<Station> stations)
+    private void DrawStations(List<Station> stations, Ship selectedShip)
     {
         int size = 4;
         foreach (Station station in stations)
         {
             Vector2 position = station.Orbit.PositionVector / Scale;
 
-            var orbit = station.Orbit;
-            DrawOrbit(orbit, Color.White);
-            DrawStationControlArea(station);
+            if (station.IsSelected)
+            {
+                DrawOrbit(station.Orbit, Color.White);
+            }
 
-            // ship square
-            Color shipColor = Color.AliceBlue;
-            SpriteBatch.DrawCircle(position.X, position.Y, size, 36, shipColor, 1.5f);
+            bool shipTargetsStation = selectedShip?.Destination is StationDestination stationDestination
+                && stationDestination.Station == station;
+            bool shouldDrawArrows = station.IsSelected || shipTargetsStation;
+
+            DrawStationControlArea(station, shouldDrawArrows);
+
+            Color stationColor = station.IsSelected ? Color.Gold : Color.AliceBlue;
+            SpriteBatch.DrawCircle(position.X, position.Y, size, 36, stationColor, 1.5f);
         }
     }
 
-    private void DrawStationControlArea(Station station)
+    private void DrawStationControlArea(Station station, bool drawArrows)
     {
         var arrivalExtent = station.ControlAreaArrivalExtentMeters;
         var departureExtent = station.ControlAreaDepartureExtentMeters;
@@ -189,7 +218,10 @@ public class SimulationRenderer
             DrawDashedPolyline(path, Color.LightSkyBlue, 1f / Camera.Zoom, dashLength: 1.5d, gapLength: 0.75d);
         }
 
-        DrawStationControlArrows(station, arrivalExtent, departureExtent, halfAltitude);
+        if (drawArrows)
+        {
+            DrawStationControlArrows(station, arrivalExtent, departureExtent, halfAltitude);
+        }
     }
 
     private void DrawStationControlArrows(Station station, double arrivalExtent, double departureExtent, double halfAltitude)
@@ -320,18 +352,31 @@ public class SimulationRenderer
         var color = button.Color;
         var thickness = button.Thickness;
         var hoverOffset = Vector2.Distance(pos, mousePos) < radius ? new Vector2(-1, -1) : new Vector2(0, 0);
+
+        Vector2 RotateIconOffset(Vector2 localOffset)
+        {
+            return Vector2.Transform(localOffset, Matrix.CreateRotationZ(-Camera.Rotation));
+        }
+
+        void DrawIconLine(Vector2 startOffset, Vector2 endOffset)
+        {
+            var start = pos + RotateIconOffset(startOffset) + hoverOffset;
+            var end = pos + RotateIconOffset(endOffset) + hoverOffset;
+            SpriteBatch.DrawLine(start, end, color, thickness);
+        }
+
         switch (button.Label)
         {
             case ButtonLabel.Plus:
-                SpriteBatch.DrawLine(new Vector2(pos.X, pos.Y + radius / 2) + hoverOffset, new Vector2(pos.X, pos.Y - radius / 2) + hoverOffset, color, thickness);
-                SpriteBatch.DrawLine(new Vector2(pos.X + radius / 2, pos.Y) + hoverOffset, new Vector2(pos.X - radius / 2, pos.Y) + hoverOffset, color, thickness);
+                DrawIconLine(new Vector2(0f, radius / 2f), new Vector2(0f, -radius / 2f));
+                DrawIconLine(new Vector2(radius / 2f, 0f), new Vector2(-radius / 2f, 0f));
                 break;
             case ButtonLabel.Minus:
-                SpriteBatch.DrawLine(new Vector2(pos.X + radius / 2, pos.Y) + hoverOffset, new Vector2(pos.X - radius / 2, pos.Y) + hoverOffset, color, thickness);
+                DrawIconLine(new Vector2(radius / 2f, 0f), new Vector2(-radius / 2f, 0f));
                 break;
             case ButtonLabel.V:
-                SpriteBatch.DrawLine(new Vector2(pos.X - radius / 2, pos.Y) + hoverOffset, new Vector2(pos.X, pos.Y - radius / 2) + hoverOffset, color, thickness);
-                SpriteBatch.DrawLine(new Vector2(pos.X + radius / 2, pos.Y) + hoverOffset, new Vector2(pos.X, pos.Y - radius / 2) + hoverOffset, color, thickness);
+                DrawIconLine(new Vector2(-radius / 2f, 0f), new Vector2(0f, -radius / 2f));
+                DrawIconLine(new Vector2(radius / 2f, 0f), new Vector2(0f, -radius / 2f));
                 break;
         }
     }
@@ -367,11 +412,15 @@ public class SimulationRenderer
         var innerRadius = Math.Max(1d, orbitRadius - halfAltitude);
         var upperSegments = Math.Max(12, (int)Math.Ceiling((arrivalAngle + departureAngle) / (5d.ToRadians())));
         var lowerSegments = Math.Max(12, (int)Math.Ceiling((arrivalAngle + departureAngle) / (5d.ToRadians())));
+        var positiveConnectorSegments = Math.Max(4, (int)Math.Ceiling(Math.Abs(arrivalAngle - departureAngle) / (5d.ToRadians())));
+        var negativeConnectorSegments = Math.Max(4, (int)Math.Ceiling(Math.Abs(arrivalAngle - departureAngle) / (5d.ToRadians())));
 
         return new List<List<Vector2>>
         {
             BuildArcPath(outerRadius, centerAngle - departureAngle, centerAngle + arrivalAngle, upperSegments),
             BuildArcPath(innerRadius, centerAngle - arrivalAngle, centerAngle + departureAngle, lowerSegments),
+            BuildArcPath(orbitRadius, centerAngle + departureAngle, centerAngle + arrivalAngle, positiveConnectorSegments),
+            BuildArcPath(orbitRadius, centerAngle - arrivalAngle, centerAngle - departureAngle, negativeConnectorSegments),
             BuildRadialPath(centerAngle + arrivalAngle, orbitRadius, outerRadius),
             BuildRadialPath(centerAngle + departureAngle, innerRadius, orbitRadius),
             BuildRadialPath(centerAngle - departureAngle, orbitRadius, outerRadius),
