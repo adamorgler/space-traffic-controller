@@ -9,6 +9,7 @@ using SpaceTrafficController.Simulation;
 using SpaceTrafficController.Utilities;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace SpaceTrafficController.UI;
 
@@ -123,10 +124,20 @@ public class SimulationRenderer
             {
                 var orbit = ship.Orbit;
                 DrawOrbit(orbit, Color.White);
+                DrawApsisMarkers(orbit, Color.White);
                 if (ship.ManeuverNode is null)
                     DrawOrbitMouseIntersection(orbit);
                 if (ship.ManeuverNode is not null)
                     DrawManueverNode(ship);
+
+                // draw destination orbit and closest approach
+                var destinationOrbit = GetDestinationOrbit(ship);
+                if (destinationOrbit is not null)
+                {
+                    DrawOrbit(destinationOrbit, Color.Cyan * 0.55f);
+                    DrawApsisMarkers(destinationOrbit, Color.Cyan * 0.75f);
+                    DrawClosestApproach(orbit, destinationOrbit);
+                }
             }
 
             // ship square: uncontrolled ships render as light gray
@@ -226,6 +237,222 @@ public class SimulationRenderer
         DrawOrbitChevronArrow(centerAngle - arrivalAngle - arrowOffsetAngle, innerRadius, motionSign, alongOrbit: true, Color.LimeGreen);
         DrawOrbitChevronArrow(centerAngle + departureAngle + arrowOffsetAngle, innerRadius, motionSign, alongOrbit: true, Color.Red);
         DrawOrbitChevronArrow(centerAngle - departureAngle - arrowOffsetAngle, outerRadius, motionSign, alongOrbit: false, Color.Red);
+    }
+
+    private static Orbit? GetDestinationOrbit(Ship ship)
+    {
+        if (ship.Destination is StationDestination stationDest)
+        {
+            return stationDest.Station.Orbit;
+        }
+        return null;
+    }
+
+    private void DrawApsisMarkers(Orbit orbit, Color color)
+    {
+        var peWorldPos = orbit.GetPositionAtAngle(0d) / Scale;
+        DrawApsisMarker(peWorldPos, "PE", color);
+
+        if (!orbit.IsEscapeTrajectory)
+        {
+            var apWorldPos = orbit.GetPositionAtAngle(Math.PI) / Scale;
+            DrawApsisMarker(apWorldPos, "AP", color);
+        }
+    }
+
+    private void DrawApsisMarker(Vector2 worldPos, string label, Color color)
+    {
+        var markerSize = 5f / Camera.Zoom;
+        var thickness = 1.5f / Camera.Zoom;
+
+        // draw diamond
+        SpriteBatch.DrawLine(worldPos + new Vector2(-markerSize, 0f), worldPos + new Vector2(0f, -markerSize), color, thickness);
+        SpriteBatch.DrawLine(worldPos + new Vector2(0f, -markerSize), worldPos + new Vector2(markerSize, 0f), color, thickness);
+        SpriteBatch.DrawLine(worldPos + new Vector2(markerSize, 0f), worldPos + new Vector2(0f, markerSize), color, thickness);
+        SpriteBatch.DrawLine(worldPos + new Vector2(0f, markerSize), worldPos + new Vector2(-markerSize, 0f), color, thickness);
+
+        // draw label scaled and counter-rotated so it stays upright
+        var textScale = 0.5f / Camera.Zoom;
+        var labelOffset = Vector2.Transform(new Vector2(markerSize + 3f / Camera.Zoom, -markerSize), Matrix.CreateRotationZ(-Camera.Rotation));
+        SpriteBatch.DrawString(Fonts.DebugFont, label, worldPos + labelOffset, color, -Camera.Rotation, Vector2.Zero, textScale, SpriteEffects.None, 0f);
+    }
+
+    private void DrawClosestApproach(Orbit shipOrbit, Orbit destOrbit)
+    {
+        const int CoarseSamples = 120;
+        const int FineSamples = 40;
+        const double FineWindow = 0.15d; // radians around best coarse sample
+
+        // coarse pass
+        var (bestShipAngle, bestDestAngle) = FindClosestApproachAngles(shipOrbit, destOrbit, CoarseSamples);
+
+        // fine pass
+        (bestShipAngle, bestDestAngle) = RefineClosestApproach(
+            shipOrbit, destOrbit,
+            bestShipAngle, bestDestAngle,
+            FineWindow, FineSamples);
+
+        var shipPos = shipOrbit.GetPositionAtAngle(bestShipAngle) / Scale;
+        var destPos = destOrbit.GetPositionAtAngle(bestDestAngle) / Scale;
+
+        // connecting dashed line
+        DrawDashedLine(shipPos, destPos, Color.Yellow * 0.55f, 1f / Camera.Zoom, dashLength: 4f / Camera.Zoom, gapLength: 3f / Camera.Zoom);
+
+        // approach crosshair markers
+        DrawApproachMarker(shipPos, Color.LimeGreen);
+        DrawApproachMarker(destPos, Color.Cyan);
+
+        // distance label at midpoint
+        var midpoint = (shipPos + destPos) / 2f;
+        var distanceMeters = Vector2.Distance(shipPos, destPos) * Scale;
+        var distLabel = FormatDistance(distanceMeters);
+        var textScale = 0.5f / Camera.Zoom;
+        SpriteBatch.DrawString(Fonts.DebugFont, distLabel, midpoint, Color.Yellow, -Camera.Rotation, Vector2.Zero, textScale, SpriteEffects.None, 0f);
+    }
+
+    private static (double shipAngle, double destAngle) FindClosestApproachAngles(
+        Orbit shipOrbit, Orbit destOrbit, int sampleCount)
+    {
+        double bestDistSq = double.MaxValue;
+        double bestShipAngle = 0d;
+        double bestDestAngle = 0d;
+
+        var shipAngles = SampleOrbitAngles(shipOrbit, sampleCount);
+        var destAngles = SampleOrbitAngles(destOrbit, sampleCount);
+
+        var shipPositions = shipAngles.Select(a => shipOrbit.GetPositionAtAngle(a)).ToList();
+        var destPositions = destAngles.Select(a => destOrbit.GetPositionAtAngle(a)).ToList();
+
+        for (int i = 0; i < sampleCount; i++)
+        {
+            var sp = shipPositions[i];
+            for (int j = 0; j < sampleCount; j++)
+            {
+                var dp = destPositions[j];
+                var dx = sp.X - dp.X;
+                var dy = sp.Y - dp.Y;
+                var distSq = (dx * dx) + (dy * dy);
+                if (distSq < bestDistSq)
+                {
+                    bestDistSq = distSq;
+                    bestShipAngle = shipAngles[i];
+                    bestDestAngle = destAngles[j];
+                }
+            }
+        }
+
+        return (bestShipAngle, bestDestAngle);
+    }
+
+    private static (double shipAngle, double destAngle) RefineClosestApproach(
+        Orbit shipOrbit, Orbit destOrbit,
+        double coarseShipAngle, double coarseDestAngle,
+        double window, int sampleCount)
+    {
+        double bestDistSq = double.MaxValue;
+        double bestShipAngle = coarseShipAngle;
+        double bestDestAngle = coarseDestAngle;
+
+        var shipAngles = SampleOrbitAnglesAround(shipOrbit, coarseShipAngle, window, sampleCount);
+        var destAngles = SampleOrbitAnglesAround(destOrbit, coarseDestAngle, window, sampleCount);
+
+        foreach (var sa in shipAngles)
+        {
+            var sp = shipOrbit.GetPositionAtAngle(sa);
+            foreach (var da in destAngles)
+            {
+                var dp = destOrbit.GetPositionAtAngle(da);
+                var dx = sp.X - dp.X;
+                var dy = sp.Y - dp.Y;
+                var distSq = (dx * dx) + (dy * dy);
+                if (distSq < bestDistSq)
+                {
+                    bestDistSq = distSq;
+                    bestShipAngle = sa;
+                    bestDestAngle = da;
+                }
+            }
+        }
+
+        return (bestShipAngle, bestDestAngle);
+    }
+
+    private static IReadOnlyList<double> SampleOrbitAngles(Orbit orbit, int count)
+    {
+        var angles = new List<double>(count);
+        if (orbit.IsEscapeTrajectory)
+        {
+            var limit = orbit.GetHyperbolicTrueAnomalyLimit() - 0.01d;
+            for (int i = 0; i < count; i++)
+            {
+                angles.Add(-limit + (2d * limit * i / (count - 1)));
+            }
+        }
+        else
+        {
+            for (int i = 0; i < count; i++)
+            {
+                angles.Add(2d * Math.PI * i / count);
+            }
+        }
+        return angles;
+    }
+
+    private static IReadOnlyList<double> SampleOrbitAnglesAround(Orbit orbit, double center, double window, int count)
+    {
+        var angles = new List<double>(count);
+        for (int i = 0; i < count; i++)
+        {
+            var angle = center - window + (2d * window * i / (count - 1));
+            if (!orbit.IsEscapeTrajectory)
+            {
+                // wrap into [0, 2π)
+                angle = ((angle % (2d * Math.PI)) + (2d * Math.PI)) % (2d * Math.PI);
+            }
+            else
+            {
+                var limit = orbit.GetHyperbolicTrueAnomalyLimit() - 0.01d;
+                angle = Math.Clamp(angle, -limit, limit);
+            }
+            angles.Add(angle);
+        }
+        return angles;
+    }
+
+    private void DrawApproachMarker(Vector2 worldPos, Color color)
+    {
+        var size = 6f / Camera.Zoom;
+        var thickness = 1.5f / Camera.Zoom;
+        SpriteBatch.DrawLine(worldPos + new Vector2(-size, 0f), worldPos + new Vector2(size, 0f), color, thickness);
+        SpriteBatch.DrawLine(worldPos + new Vector2(0f, -size), worldPos + new Vector2(0f, size), color, thickness);
+        // draw a small circle around the crosshair
+        SpriteBatch.DrawCircle(new CircleF() { Center = worldPos, Radius = size * 0.7f }, 12, color * 0.7f, thickness);
+    }
+
+    private void DrawDashedLine(Vector2 start, Vector2 end, Color color, float thickness, float dashLength, float gapLength)
+    {
+        var segment = end - start;
+        var totalLength = segment.Length();
+        if (totalLength <= 0f) return;
+        var dir = segment / totalLength;
+        var patternLength = dashLength + gapLength;
+        var traveled = 0f;
+        while (traveled < totalLength)
+        {
+            var dashStart = start + dir * traveled;
+            var dashEnd = start + dir * Math.Min(traveled + dashLength, totalLength);
+            SpriteBatch.DrawLine(dashStart, dashEnd, color, thickness);
+            traveled += patternLength;
+        }
+    }
+
+    private static string FormatDistance(double meters)
+    {
+        if (meters >= 1_000_000d)
+            return $"{meters / 1000d:0}km";
+        if (meters >= 10_000d)
+            return $"{meters / 1000d:0.0}km";
+        return $"{meters:0}m";
     }
 
     private void DrawOrbit(Orbit orbit, Color color)
