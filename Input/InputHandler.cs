@@ -437,6 +437,12 @@ public class InputHandler
             case UIAction.PauseToggle:
                 GameState.TogglePause();
                 return;
+            case UIAction.ToggleOrbitsVisibility:
+                GameState.ShowAllOrbits = !GameState.ShowAllOrbits;
+                return;
+            case UIAction.ToggleShowManeuvers:
+                GameState.ShowAllManeuvers = !GameState.ShowAllManeuvers;
+                return;
             case UIAction.CameraFocusSelected:
                 FocusCameraOnSelectedObject();
                 return;

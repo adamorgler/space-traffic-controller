@@ -45,6 +45,47 @@ public class SimulationRenderer
         BasicEffect.View = Camera.GetTransform();
 
         DrawBody();
+
+        // default orbit color for the global/maneuver displays
+        var orbitDefaultColor = Color.LightGray * 0.6f;
+
+        // Global orbit visibility (top-right toggle)
+        if (gameState.ShowAllOrbits)
+        {
+            foreach (var obj in gameState.OrbitingObjects)
+            {
+                try
+                {
+                    DrawOrbit(obj.Orbit, orbitDefaultColor);
+                    DrawApsisMarkers(obj.Orbit, orbitDefaultColor);
+                }
+                catch
+                {
+                    // ignore any drawing errors per-object
+                }
+            }
+        }
+
+        // Show orbits for any craft with an accepted maneuver node and their predicted orbit
+        if (gameState.ShowAllManeuvers)
+        {
+            foreach (var ship in gameState.Ships)
+            {
+                var node = ship.ManeuverNode;
+                if (node is null || !node.IsConfirmed) continue;
+                try
+                {
+                    // draw the current orbit faintly and then use DrawManueverNode
+                    DrawOrbit(ship.Orbit, orbitDefaultColor);
+                    DrawManueverNode(ship);
+                }
+                catch
+                {
+                    // swallow per-ship draw errors
+                }
+            }
+        }
+
         DrawStations(gameState.Stations, gameState.SelectedShip);
         DrawShips(gameState.Ships);
 

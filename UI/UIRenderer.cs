@@ -9,7 +9,7 @@ using System.Collections.Generic;
 
 namespace SpaceTrafficController.UI;
 
-public enum UIAction { None, ManeuverProgradeStep, ManeuverNormalStep, CircularizeAtPE, CircularizeAtAP, ManeuverAccept, ManeuverCancel, WarpDecrease, WarpIncrease, PauseToggle, CameraFocusSelected, CameraResetView }
+public enum UIAction { None, ManeuverProgradeStep, ManeuverNormalStep, CircularizeAtPE, CircularizeAtAP, ManeuverAccept, ManeuverCancel, WarpDecrease, WarpIncrease, PauseToggle, CameraFocusSelected, CameraResetView, ToggleOrbitsVisibility, ToggleShowManeuvers }
 public record UIButtonResult(UIAction Action, double StepValue = 0d);
 
 public class UIRenderer
@@ -33,7 +33,8 @@ public class UIRenderer
         _mousePos = ms.Position.ToVector2();
         _mousePressed = ms.LeftButton == ButtonState.Pressed;
         DrawTimeWarpPanel(gameState);
-        DrawShipInfoPanel(gameState);
+        DrawOrbitVisibilityPanel(gameState);
+        DrawSelectionPanel(gameState);
         DrawManeuverNodePanel(gameState);
         DrawPausedOverlay(gameState);
     }
@@ -74,16 +75,9 @@ public class UIRenderer
         var timeSize = font.MeasureString(timeText);
         var warpSize = font.MeasureString(warpText);
         var scoreSize = font.MeasureString(scoreText);
-        bool showCameraButtons = gameState.SelectedOrbitingObject is not null;
-
         var buttonRowWidth = (stepButtonWidth * 2f) + pauseButtonWidth + (buttonGap * 2f);
-        var cameraButtonWidth = Math.Max(buttonRowWidth, cameraButtonMinWidth);
-        var cameraSectionHeight = showCameraButtons
-            ? cameraSectionGap + cameraButtonHeight + buttonGap + cameraButtonHeight
-            : 0f;
-
-        var panelWidth = Math.Max(Math.Max(Math.Max(timeSize.X, warpSize.X), scoreSize.X), Math.Max(buttonRowWidth, cameraButtonWidth)) + (innerPadding * 2f);
-        var panelHeight = timeSize.Y + warpSize.Y + scoreSize.Y + buttonHeight + (lineGap * 3f) + (innerPadding * 2f) + cameraSectionHeight;
+        var panelWidth = Math.Max(Math.Max(Math.Max(timeSize.X, warpSize.X), scoreSize.X), buttonRowWidth) + (innerPadding * 2f);
+        var panelHeight = timeSize.Y + warpSize.Y + scoreSize.Y + buttonHeight + (lineGap * 3f) + (innerPadding * 2f);
         var panelX = GraphicsDevice.Viewport.Width - panelWidth - padding;
         var panelY = padding;
 
@@ -116,22 +110,49 @@ public class UIRenderer
             "+",
             new UIButtonResult(UIAction.WarpIncrease));
 
-        if (showCameraButtons)
-        {
-            var cameraButtonX = panelX + innerPadding;
-            var cameraButtonY = buttonY + buttonHeight + cameraSectionGap;
-            var fullButtonWidth = panelWidth - (innerPadding * 2f);
+        // Camera buttons moved to the selection panel (bottom-left) so they appear
+        // next to ship/station info when an object is selected.
+    }
 
-            DrawPanelButton(
-                new RectangleF(cameraButtonX, cameraButtonY, fullButtonWidth, cameraButtonHeight),
-                "Focus Selected Orbit",
-                new UIButtonResult(UIAction.CameraFocusSelected));
+    // ── Orbit visibility panel (top-right, under time/warp) ─────────────────
+    private void DrawOrbitVisibilityPanel(GameState gameState)
+    {
+        var font = Fonts.DebugFont;
+        const float padding = 12f;
+        const float lineGap = 4f;
+        const float innerPadding = 10f;
+        const float buttonGap = 6f;
+        const float buttonHeight = 20f;
+        const float panelGap = 8f; // gap between time panel and this one
 
-            DrawPanelButton(
-                new RectangleF(cameraButtonX, cameraButtonY + cameraButtonHeight + buttonGap, fullButtonWidth, cameraButtonHeight),
-                "Reset Camera View",
-                new UIButtonResult(UIAction.CameraResetView));
-        }
+        var timeText = $"TIME  {FormatMissionTime(gameState.ElapsedTimeSeconds)}";
+        var warpText = $"WARP  x{gameState.CurrentWarpMultiplier}";
+        var scoreText = $"SCORE {gameState.Score,7:0.0}   x{gameState.ScoreMultiplier}";
+
+        var timeSize = font.MeasureString(timeText);
+        var warpSize = font.MeasureString(warpText);
+        var scoreSize = font.MeasureString(scoreText);
+        var buttonRowWidth = (28f * 2f) + 90f + (buttonGap * 2f);
+        var panelWidth = Math.Max(Math.Max(Math.Max(timeSize.X, warpSize.X), scoreSize.X), buttonRowWidth) + (innerPadding * 2f);
+        var timePanelHeight = timeSize.Y + warpSize.Y + scoreSize.Y + buttonHeight + (lineGap * 3f) + (innerPadding * 2f);
+
+        var panelX = GraphicsDevice.Viewport.Width - panelWidth - padding;
+        var panelY = padding + timePanelHeight + panelGap;
+
+        // two stacked buttons: toggle orbits, toggle maneuver-based orbits
+        var totalHeight = (buttonHeight * 2f) + innerPadding * 2f + buttonGap;
+        SpriteBatch.FillRectangle(panelX, panelY, panelWidth, totalHeight, new Color(0, 0, 0, 180));
+        SpriteBatch.DrawRectangle(panelX, panelY, panelWidth, totalHeight, Color.Gray * 0.6f, 1f);
+
+        var labelOrbits = gameState.ShowAllOrbits ? "Hide All Orbits" : "Show All Orbits";
+        DrawPanelButton(new RectangleF(panelX + innerPadding, panelY + innerPadding, panelWidth - innerPadding * 2f, buttonHeight),
+            labelOrbits,
+            new UIButtonResult(UIAction.ToggleOrbitsVisibility));
+
+        var labelManeuvers = gameState.ShowAllManeuvers ? "Hide All Maneuvers" : "Show All Maneuvers";
+        DrawPanelButton(new RectangleF(panelX + innerPadding, panelY + innerPadding + buttonHeight + buttonGap, panelWidth - innerPadding * 2f, buttonHeight),
+            labelManeuvers,
+            new UIButtonResult(UIAction.ToggleShowManeuvers));
     }
 
     private void DrawPausedOverlay(GameState gameState)
@@ -160,13 +181,12 @@ public class UIRenderer
         SpriteBatch.DrawString(font, pausedText, textPos, Color.OrangeRed, 0f, Vector2.Zero, textScale, SpriteEffects.None, 0f);
     }
 
-    // ── Ship info panel (bottom-left) ─────────────────────────────────────
-    private void DrawShipInfoPanel(GameState gameState)
+    // ── Selection panel (bottom-left) — shows ship or station info and camera controls
+    private void DrawSelectionPanel(GameState gameState)
     {
-        var ship = gameState.SelectedShip;
-        if (ship is null) return;
+        var selected = gameState.SelectedOrbitingObject;
+        if (selected is null) return;
 
-        var orbit = ship.Orbit;
         var font = Fonts.DebugFont;
         const float padding = 14f;
         const float lineHeight = 20f;
@@ -174,31 +194,50 @@ public class UIRenderer
         const float btnHeight = 18f;
         const float btnWidth = 130f;
         const float btnGap = 8f;
+        const float cameraBtnHeight = 18f;
+        const float cameraBtnGap = 8f;
 
-        bool showCircularize = !orbit.IsEscapeTrajectory;
-        float circularizeHeight = showCircularize ? padding / 2f + btnHeight : 0f;
+        float additionalCircularizeHeight = 0f;
+        string title = "";
+        (string Label, string Value)[] statLines = Array.Empty<(string, string)>();
 
-        var statLines = new (string Label, string Value)[]
+        if (selected is Ship ship)
         {
-            ("Periapsis",   FormatDistance(orbit.Periapsis)),
-            ("Apoapsis",    orbit.IsEscapeTrajectory ? "Escape" : FormatDistance(orbit.Apoapsis)),
-            ("Velocity",    $"{orbit.Velocity / 1000d:F2} km/s"),
-            ("Destination", ship.Destination switch
-            {
-                StationDestination sd => sd.Station.Name ?? "Unknown",
-                _ => "None"
-            }),
-        };
+            var orbit = ship.Orbit;
+            title = ship.Name ?? "Unknown Ship";
+            bool showCircularize = !orbit.IsEscapeTrajectory;
+            additionalCircularizeHeight = showCircularize ? padding / 2f + btnHeight : 0f;
 
-        var panelHeight = padding * 2f + lineHeight * (1 + statLines.Length) + circularizeHeight;
+            statLines = new (string, string)[]
+            {
+                ("Periapsis",   FormatDistance(orbit.Periapsis)),
+                ("Apoapsis",    orbit.IsEscapeTrajectory ? "Escape" : FormatDistance(orbit.Apoapsis)),
+                ("Velocity",    $"{orbit.Velocity / 1000d:F2} km/s"),
+                ("Destination", ship.Destination switch
+                    {
+                        StationDestination sd => sd.Station.Name ?? "Unknown",
+                        _ => "None"
+                    }),
+            };
+        }
+        else if (selected is Station station)
+        {
+            title = station.Name ?? "Station";
+            statLines = new (string, string)[]
+            {
+                ("Type", "Station"),
+            };
+        }
+
+        var cameraSectionHeight = cameraBtnHeight * 2f + cameraBtnGap + padding / 2f;
+        var panelHeight = padding * 2f + lineHeight * (1 + statLines.Length) + additionalCircularizeHeight + cameraSectionHeight;
         var panelX = padding;
         var panelY = GraphicsDevice.Viewport.Height - panelHeight - padding;
 
         SpriteBatch.FillRectangle(panelX, panelY, panelWidth, panelHeight, new Color(0, 0, 0, 180));
         SpriteBatch.DrawRectangle(panelX, panelY, panelWidth, panelHeight, Color.Gray * 0.6f, 1f);
 
-        SpriteBatch.DrawString(font, ship.Name ?? "Unknown Ship",
-            new Vector2(panelX + padding, panelY + padding), Color.Gold);
+        SpriteBatch.DrawString(font, title, new Vector2(panelX + padding, panelY + padding), Color.Gold);
 
         for (int i = 0; i < statLines.Length; i++)
         {
@@ -209,16 +248,26 @@ public class UIRenderer
                 new Vector2(panelX + panelWidth - padding - valSize.X, y), Color.White);
         }
 
-        if (showCircularize)
+        // Circularize buttons for ship (if applicable)
+        if (selected is Ship s && !s.Orbit.IsEscapeTrajectory)
         {
             var btnY = panelY + padding + lineHeight * (1 + statLines.Length) + padding / 2f;
-            DrawPanelButton(
-                new RectangleF(panelX + padding, btnY, btnWidth, btnHeight),
+            DrawPanelButton(new RectangleF(panelX + padding, btnY, btnWidth, btnHeight),
                 "Circularize at PE", new UIButtonResult(UIAction.CircularizeAtPE));
-            DrawPanelButton(
-                new RectangleF(panelX + padding + btnWidth + btnGap, btnY, btnWidth, btnHeight),
+            DrawPanelButton(new RectangleF(panelX + padding + btnWidth + btnGap, btnY, btnWidth, btnHeight),
                 "Circularize at AP", new UIButtonResult(UIAction.CircularizeAtAP));
         }
+
+        // Camera buttons (focus / reset) — full-width stacked
+        var cameraButtonX = panelX + padding;
+        var cameraButtonY = panelY + panelHeight - padding - (cameraBtnHeight * 2f) - cameraBtnGap;
+        var fullButtonWidth = panelWidth - (padding * 2f);
+
+        DrawPanelButton(new RectangleF(cameraButtonX, cameraButtonY, fullButtonWidth, cameraBtnHeight),
+            "Focus Selected Orbit", new UIButtonResult(UIAction.CameraFocusSelected));
+
+        DrawPanelButton(new RectangleF(cameraButtonX, cameraButtonY + cameraBtnHeight + cameraBtnGap, fullButtonWidth, cameraBtnHeight),
+            "Reset Camera View", new UIButtonResult(UIAction.CameraResetView));
     }
 
     // ── Maneuver node panel (bottom-right) ────────────────────────────────

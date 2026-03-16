@@ -36,6 +36,10 @@ public class GameState
     public HasOrbit SelectedOrbitingObject { get; set; }
     // An auxiliary right-click-selected orbiting object used for comparing/previewing
     public HasOrbit TargetOrbitingObject { get; set; }
+    // Toggle to show/hide all orbit traces
+    public bool ShowAllOrbits { get; set; } = false;
+    // When true, render any craft with a maneuver node and its predicted orbit
+    public bool ShowAllManeuvers { get; set; } = false;
     public Ship SelectedShip
     {
         get => SelectedOrbitingObject as Ship;
