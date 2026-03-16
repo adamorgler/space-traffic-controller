@@ -8,12 +8,14 @@ public class Camera2D
 
     private Vector2 _desiredPosition = Vector2.Zero;
     private float _desiredRotation = 0f;
+    private float _desiredZoom = 1f;
 
     private bool _isTransitioning = false;
     private float _transitionElapsedSeconds = 0f;
     private float _transitionDurationSeconds = 0.5f;
     private Vector2 _transitionStartPosition = Vector2.Zero;
     private float _transitionStartRotation = 0f;
+    private float _transitionStartZoom = 1f;
 
     public Vector2 Position { get; set; } = Vector2.Zero;
     public float Zoom { get; set; } = 1f;
@@ -29,6 +31,7 @@ public class Camera2D
     {
         GraphicsDevice = graphicsDevice;
         _desiredPosition = Position;
+            _desiredZoom = Zoom;
         _desiredRotation = Rotation;
     }
 
@@ -41,17 +44,20 @@ public class Camera2D
     public void AdjustZoom(float delta)
     {
         Zoom = Math.Clamp(Zoom + delta, 0.5f, 2f); // adjust as needed
+        _desiredZoom = Zoom;
     }
 
-    public void SetPose(Vector2 position, float rotation)
+    public void SetPose(Vector2 position, float rotation, float? zoom = null)
     {
         _desiredPosition = position;
         _desiredRotation = rotation;
+        _desiredZoom = zoom ?? Zoom;
 
         if (!_isTransitioning)
         {
             Position = _desiredPosition;
             Rotation = _desiredRotation;
+            Zoom = _desiredZoom;
         }
     }
 
@@ -59,6 +65,7 @@ public class Camera2D
     {
         _transitionStartPosition = Position;
         _transitionStartRotation = Rotation;
+            _transitionStartZoom = Zoom;
         _transitionElapsedSeconds = 0f;
         _isTransitioning = true;
 
@@ -79,14 +86,18 @@ public class Camera2D
         float t = Math.Clamp(_transitionElapsedSeconds / _transitionDurationSeconds, 0f, 1f);
         float easedT = MathHelper.SmoothStep(0f, 1f, t);
 
+        // interpolate while in-progress
         Position = Vector2.Lerp(_transitionStartPosition, _desiredPosition, easedT);
         var delta = MathHelper.WrapAngle(_desiredRotation - _transitionStartRotation);
         Rotation = _transitionStartRotation + (delta * easedT);
+        Zoom = MathHelper.Lerp(_transitionStartZoom, _desiredZoom, easedT);
 
+        // finalize when complete
         if (t >= 1f)
         {
             Position = _desiredPosition;
             Rotation = _desiredRotation;
+            Zoom = _desiredZoom;
             _isTransitioning = false;
         }
     }
@@ -113,4 +124,8 @@ public class Camera2D
     {
         return Vector2.Transform(worldPos, GetTransform());
     }
+
+    public bool IsTransitioning => _isTransitioning;
+
 }
+

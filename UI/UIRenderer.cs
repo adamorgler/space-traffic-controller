@@ -9,7 +9,7 @@ using System.Collections.Generic;
 
 namespace SpaceTrafficController.UI;
 
-public enum UIAction { None, ManeuverProgradeStep, ManeuverNormalStep, CircularizeAtPE, CircularizeAtAP, ManeuverAccept, ManeuverCancel, WarpDecrease, WarpIncrease, PauseToggle }
+public enum UIAction { None, ManeuverProgradeStep, ManeuverNormalStep, CircularizeAtPE, CircularizeAtAP, ManeuverAccept, ManeuverCancel, WarpDecrease, WarpIncrease, PauseToggle, CameraFocusSelected, CameraResetView }
 public record UIButtonResult(UIAction Action, double StepValue = 0d);
 
 public class UIRenderer
@@ -57,8 +57,11 @@ public class UIRenderer
         const float innerPadding = 10f;
         const float buttonGap = 6f;
         const float buttonHeight = 20f;
+        const float cameraButtonHeight = 18f;
+        const float cameraSectionGap = 8f;
         const float pauseButtonWidth = 90f;
         const float stepButtonWidth = 28f;
+        const float cameraButtonMinWidth = 190f;
 
         var timeText = $"TIME  {FormatMissionTime(gameState.ElapsedTimeSeconds)}";
         var warpText = $"WARP  x{gameState.CurrentWarpMultiplier}";
@@ -71,11 +74,16 @@ public class UIRenderer
         var timeSize = font.MeasureString(timeText);
         var warpSize = font.MeasureString(warpText);
         var scoreSize = font.MeasureString(scoreText);
+        bool showCameraButtons = gameState.SelectedOrbitingObject is not null;
 
         var buttonRowWidth = (stepButtonWidth * 2f) + pauseButtonWidth + (buttonGap * 2f);
+        var cameraButtonWidth = Math.Max(buttonRowWidth, cameraButtonMinWidth);
+        var cameraSectionHeight = showCameraButtons
+            ? cameraSectionGap + cameraButtonHeight + buttonGap + cameraButtonHeight
+            : 0f;
 
-        var panelWidth = Math.Max(Math.Max(Math.Max(timeSize.X, warpSize.X), scoreSize.X), buttonRowWidth) + (innerPadding * 2f);
-        var panelHeight = timeSize.Y + warpSize.Y + scoreSize.Y + buttonHeight + (lineGap * 3f) + (innerPadding * 2f);
+        var panelWidth = Math.Max(Math.Max(Math.Max(timeSize.X, warpSize.X), scoreSize.X), Math.Max(buttonRowWidth, cameraButtonWidth)) + (innerPadding * 2f);
+        var panelHeight = timeSize.Y + warpSize.Y + scoreSize.Y + buttonHeight + (lineGap * 3f) + (innerPadding * 2f) + cameraSectionHeight;
         var panelX = GraphicsDevice.Viewport.Width - panelWidth - padding;
         var panelY = padding;
 
@@ -107,6 +115,23 @@ public class UIRenderer
             new RectangleF(buttonStartX + stepButtonWidth + buttonGap + pauseButtonWidth + buttonGap, buttonY, stepButtonWidth, buttonHeight),
             "+",
             new UIButtonResult(UIAction.WarpIncrease));
+
+        if (showCameraButtons)
+        {
+            var cameraButtonX = panelX + innerPadding;
+            var cameraButtonY = buttonY + buttonHeight + cameraSectionGap;
+            var fullButtonWidth = panelWidth - (innerPadding * 2f);
+
+            DrawPanelButton(
+                new RectangleF(cameraButtonX, cameraButtonY, fullButtonWidth, cameraButtonHeight),
+                "Focus Selected Orbit",
+                new UIButtonResult(UIAction.CameraFocusSelected));
+
+            DrawPanelButton(
+                new RectangleF(cameraButtonX, cameraButtonY + cameraButtonHeight + buttonGap, fullButtonWidth, cameraButtonHeight),
+                "Reset Camera View",
+                new UIButtonResult(UIAction.CameraResetView));
+        }
     }
 
     private void DrawPausedOverlay(GameState gameState)

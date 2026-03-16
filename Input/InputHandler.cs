@@ -6,6 +6,8 @@ using SpaceTrafficController.GameObjects;
 using SpaceTrafficController.Utilities;
 using System;
 using SpaceTrafficController.UI;
+using SpaceTrafficController.Simulation;
+using SpaceTrafficController.Simulation.OrbitingObjects;
 using System.Xml.Linq;
 
 namespace SpaceTrafficController.Input;
@@ -24,8 +26,12 @@ public class InputHandler
     private ManeuverDragType CurrentManeuverDrag = ManeuverDragType.None;
     private Vector2 DragStartMouseWorldPos;
 
-    private bool _followingShip = false;
-    private Vector2 _cameraFollowOffset = Vector2.Zero;
+    private bool _hasCameraPreFocusPose;
+    private Vector2 _cameraPreFocusPosition;
+    private float _cameraPreFocusRotation;
+    private float _cameraPreFocusZoom;
+    private bool _cameraFollowSelected = false;
+    private HasOrbit _prevSelectedOrbitingObject = null;
 
     private readonly UIRenderer UIRenderer;
 
@@ -64,40 +70,6 @@ public class InputHandler
         HandleLeftDrag();
         HandleManeuverDeltaVDrag();
 
-        if (_followingShip && GameState.SelectedOrbitingObject is not null)
-        {
-            var selectedObjectPos = GameState.SelectedOrbitingObject.Orbit.PositionVector / GameConstants.RenderingScale;
-            float targetRotation = Camera.Rotation;
-
-            var velocity = GameState.SelectedOrbitingObject.Orbit.VelocityVector;
-            if (velocity.LengthSquared() > 1e-6f)
-            {
-                var tangentAngle = MathF.Atan2(velocity.Y, velocity.X);
-                var baseRotation = -tangentAngle;
-
-                // Convert local offset to world using the base tangent rotation to find approximate camera position.
-                var baseWorldOffset = Vector2.Transform(_cameraFollowOffset, Matrix.CreateRotationZ(-baseRotation));
-                var baseCameraFollowPos = selectedObjectPos + baseWorldOffset;
-
-                float additionalOffsetRotation = 0f;
-                if (_cameraFollowOffset.LengthSquared() > 1e-6f
-                    && selectedObjectPos.LengthSquared() > 1e-6f
-                    && baseCameraFollowPos.LengthSquared() > 1e-6f)
-                {
-                    var selectedAngle = MathF.Atan2(selectedObjectPos.Y, selectedObjectPos.X);
-                    var cameraAngle = MathF.Atan2(baseCameraFollowPos.Y, baseCameraFollowPos.X);
-                    additionalOffsetRotation = MathHelper.WrapAngle(cameraAngle - selectedAngle);
-                }
-
-                targetRotation = -(tangentAngle + additionalOffsetRotation);
-            }
-
-            // Recompute world offset from the final rotation so the local offset stays visually stable.
-            var worldOffset = Vector2.Transform(_cameraFollowOffset, Matrix.CreateRotationZ(-targetRotation));
-            var cameraFollowPos = selectedObjectPos + worldOffset;
-            Camera.SetPose(cameraFollowPos, targetRotation);
-        }
-
         if (MouseState.LeftButton == ButtonState.Released && PrevMouseState.LeftButton == ButtonState.Pressed)
         {
             var selectedShip = GameState.SelectedShip;
@@ -116,8 +88,45 @@ public class InputHandler
             }
         }
 
+        // update camera following state (if requested)
+        UpdateCameraFollowing();
+
+        // if the camera was focused on a selected object but that object became unselected,
+        // reset the camera back to the pre-focus pose
+        if (_prevSelectedOrbitingObject is not null && GameState.SelectedOrbitingObject is null)
+        {
+            if (_cameraFollowSelected || _hasCameraPreFocusPose)
+            {
+                ResetCameraView();
+            }
+        }
+
+        _prevSelectedOrbitingObject = GameState.SelectedOrbitingObject;
+
         PrevKeyboardState = KeyboardState;
         PrevMouseState = MouseState;
+    }
+
+    // ensure camera follows selected orbiting object when requested
+    private void UpdateCameraFollowing()
+    {
+        if (!_cameraFollowSelected)
+            return;
+
+        var selected = GameState.SelectedOrbitingObject;
+        if (selected is null)
+        {
+            _cameraFollowSelected = false;
+            return;
+        }
+
+        // only snap-follow once the transition is complete to avoid fighting the interpolation
+        if (!Camera.IsTransitioning)
+        {
+            var targetPosition = selected.Orbit.PositionVector / GameConstants.RenderingScale;
+            // set pose immediately (keeps desired/actual in sync)
+            Camera.SetPose(targetPosition, Camera.Rotation, Camera.Zoom);
+        }
     }
 
     private void ClearTransientInputState()
@@ -169,16 +178,8 @@ public class InputHandler
 
         if (move != Vector2.Zero)
         {
-            if (_followingShip && GameState.SelectedOrbitingObject is not null)
-            {
-                // Offset is camera-local: add the raw (unrotated) input directly.
-                _cameraFollowOffset += move;
-            }
-            else
-            {
-                var inputToWorldRotation = Matrix.CreateRotationZ(-Camera.Rotation);
-                Camera.Move(Vector2.Transform(move, inputToWorldRotation));
-            }
+            var inputToWorldRotation = Matrix.CreateRotationZ(-Camera.Rotation);
+            Camera.Move(Vector2.Transform(move, inputToWorldRotation));
         }
     }
 
@@ -292,9 +293,6 @@ public class InputHandler
 
                     orbitingObject.IsSelected = true;
                     GameState.SelectedOrbitingObject = orbitingObject;
-                    _followingShip = true;
-                    _cameraFollowOffset = Vector2.Zero;
-                    Camera.StartSelectionTransition();
                     return;
                 }
             }
@@ -303,10 +301,6 @@ public class InputHandler
                 GameState.SelectedOrbitingObject.IsSelected = false;
 
             GameState.SelectedOrbitingObject = null;
-            _followingShip = false;
-            _cameraFollowOffset = Vector2.Zero;
-            Camera.StartSelectionTransition();
-            Camera.SetPose(Camera.Position, 0f);
             if (DraggedNode is not null)
             {
                 DraggedNode.IsDragged = false;
@@ -402,6 +396,12 @@ public class InputHandler
             case UIAction.PauseToggle:
                 GameState.TogglePause();
                 return;
+            case UIAction.CameraFocusSelected:
+                FocusCameraOnSelectedObject();
+                return;
+            case UIAction.CameraResetView:
+                ResetCameraView();
+                return;
         }
 
         var ship = GameState.SelectedShip;
@@ -463,5 +463,57 @@ public class InputHandler
     {
         var screenPos = MouseState.Position.ToVector2();
         return Camera.ScreenToWorld(screenPos);
+    }
+
+    private void FocusCameraOnSelectedObject()
+    {
+        var selectedObject = GameState.SelectedOrbitingObject;
+        if (selectedObject is null)
+        {
+            return;
+        }
+
+        if (!_hasCameraPreFocusPose)
+        {
+            _hasCameraPreFocusPose = true;
+            _cameraPreFocusPosition = Camera.Position;
+            _cameraPreFocusRotation = Camera.Rotation;
+            _cameraPreFocusZoom = Camera.Zoom;
+        }
+
+        var targetPosition = selectedObject.Orbit.PositionVector / GameConstants.RenderingScale;
+        var targetRotation = GetOrbitTangentCameraRotation(selectedObject.Orbit, Camera.Rotation);
+
+        Camera.StartSelectionTransition();
+        Camera.SetPose(targetPosition, targetRotation, 2f);
+        _cameraFollowSelected = true;
+    }
+
+    private void ResetCameraView()
+    {
+        if (!_hasCameraPreFocusPose)
+        {
+            return;
+        }
+
+        // start a transition back to the pre-focus pose (including zoom)
+        Camera.StartSelectionTransition();
+        Camera.SetPose(_cameraPreFocusPosition, _cameraPreFocusRotation, _cameraPreFocusZoom);
+
+        _hasCameraPreFocusPose = false;
+        _cameraFollowSelected = false;
+    }
+
+
+    private static float GetOrbitTangentCameraRotation(Orbit orbit, float fallbackRotation)
+    {
+        var velocity = orbit.VelocityVector;
+        if (velocity.LengthSquared() <= 1e-6f)
+        {
+            return fallbackRotation;
+        }
+
+        var tangentAngle = MathF.Atan2(velocity.Y, velocity.X);
+        return -tangentAngle;
     }
 }
