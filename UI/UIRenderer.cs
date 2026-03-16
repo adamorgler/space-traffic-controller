@@ -9,7 +9,7 @@ using System.Collections.Generic;
 
 namespace SpaceTrafficController.UI;
 
-public enum UIAction { None, ManeuverProgradeStep, ManeuverNormalStep, CircularizeAtPE, CircularizeAtAP, ManeuverAccept, ManeuverCancel, WarpDecrease, WarpIncrease, PauseToggle, CameraFocusSelected, CameraResetView, ToggleOrbitsVisibility, ToggleShowManeuvers }
+public enum UIAction { None, ManeuverProgradeStep, ManeuverNormalStep, CircularizeAtPE, CircularizeAtAP, ManeuverAccept, ManeuverCancel, WarpDecrease, WarpIncrease, PauseToggle, CameraFocusSelected, CameraResetView, ToggleOrbitsVisibility, ToggleShowManeuvers, ToggleViewMode }
 public record UIButtonResult(UIAction Action, double StepValue = 0d);
 
 public class UIRenderer
@@ -25,6 +25,9 @@ public class UIRenderer
         GraphicsDevice = graphicsDevice;
         SpriteBatch = spriteBatch;
     }
+
+    public int ScreenWidth => GraphicsDevice.Viewport.Width;
+    public int ScreenHeight => GraphicsDevice.Viewport.Height;
 
     public void Draw(GameState gameState)
     {
@@ -139,8 +142,8 @@ public class UIRenderer
         var panelX = GraphicsDevice.Viewport.Width - panelWidth - padding;
         var panelY = padding + timePanelHeight + panelGap;
 
-        // two stacked buttons: toggle orbits, toggle maneuver-based orbits
-        var totalHeight = (buttonHeight * 2f) + innerPadding * 2f + buttonGap;
+        // three stacked buttons: orbits, maneuvers, projected view toggle
+        var totalHeight = (buttonHeight * 3f) + innerPadding * 2f + (buttonGap * 2f);
         SpriteBatch.FillRectangle(panelX, panelY, panelWidth, totalHeight, new Color(0, 0, 0, 180));
         SpriteBatch.DrawRectangle(panelX, panelY, panelWidth, totalHeight, Color.Gray * 0.6f, 1f);
 
@@ -153,6 +156,12 @@ public class UIRenderer
         DrawPanelButton(new RectangleF(panelX + innerPadding, panelY + innerPadding + buttonHeight + buttonGap, panelWidth - innerPadding * 2f, buttonHeight),
             labelManeuvers,
             new UIButtonResult(UIAction.ToggleShowManeuvers));
+
+        // View mode toggle
+        var viewLabel = gameState.CurrentViewMode == GameState.ViewMode.Projected ? "Projected View [On]" : "Projected View [Off]";
+        DrawPanelButton(new RectangleF(panelX + innerPadding, panelY + innerPadding + (buttonHeight + buttonGap) * 2f, panelWidth - innerPadding * 2f, buttonHeight),
+            viewLabel,
+            new UIButtonResult(UIAction.ToggleViewMode));
     }
 
     private void DrawPausedOverlay(GameState gameState)

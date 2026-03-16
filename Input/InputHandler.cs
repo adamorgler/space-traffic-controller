@@ -30,6 +30,10 @@ public class InputHandler
     private Vector2 _cameraPreFocusPosition;
     private float _cameraPreFocusRotation;
     private float _cameraPreFocusZoom;
+    private bool _hasDefaultViewCameraPose;
+    private Vector2 _defaultViewCameraPosition;
+    private float _defaultViewCameraRotation;
+    private float _defaultViewCameraZoom;
     private bool _cameraFollowSelected = false;
     private HasOrbit _prevSelectedOrbitingObject = null;
 
@@ -198,6 +202,31 @@ public class InputHandler
     private void HandleCameraMovement(GameTime gameTime)
     {
         float dt = (float)gameTime.ElapsedGameTime.TotalSeconds;
+
+        if (GameState.CurrentViewMode == GameState.ViewMode.Projected)
+        {
+            // Projected view supports horizontal-only panning (wrap handled by renderer).
+            float projectedMoveSpeed = 1000f * dt;
+            float moveX = 0f;
+
+            if (MouseState.MiddleButton == ButtonState.Pressed)
+            {
+                moveX += PrevMouseState.Position.X - MouseState.Position.X;
+            }
+
+            if (KeyboardState.IsKeyDown(Keys.A) || KeyboardState.IsKeyDown(Keys.Left)) moveX -= projectedMoveSpeed;
+            if (KeyboardState.IsKeyDown(Keys.D) || KeyboardState.IsKeyDown(Keys.Right)) moveX += projectedMoveSpeed;
+
+            if (Math.Abs(moveX) > float.Epsilon)
+            {
+                var width = Math.Max(1f, UIRenderer.ScreenWidth);
+                var updatedPan = GameState.ProjectedPanX + moveX;
+                GameState.ProjectedPanX = (updatedPan % width + width) % width;
+            }
+
+            return;
+        }
+
         float moveSpeed = 1000f * dt / Camera.Zoom;
 
         Vector2 move = Vector2.Zero;
@@ -221,6 +250,8 @@ public class InputHandler
 
     private void HandleCameraZoom()
     {
+        if (GameState.CurrentViewMode == GameState.ViewMode.Projected)
+            return;
         int scrollDelta = MouseState.ScrollWheelValue - PrevMouseState.ScrollWheelValue;
 
         if (scrollDelta != 0)
@@ -246,6 +277,7 @@ public class InputHandler
     private void HandleLeftClick()
     {
         Vector2 mousePos = GetMouseWorldPosition();
+        Vector2 maneuverMousePos = GetManeuverInteractionPosition();
         var selectedShip = GameState.SelectedShip;
         var manueverNode = selectedShip?.ManeuverNode ?? null;
         if (MouseState.LeftButton == ButtonState.Pressed && PrevMouseState.LeftButton == ButtonState.Released)
@@ -261,27 +293,27 @@ public class InputHandler
             {
                 if (manueverNode is not null)
                 {
-                    if (Vector2.Distance(mousePos, manueverNode.ProgradeButton.Position) < manueverNode.ProgradeButton.Radius)
+                    if (Vector2.Distance(maneuverMousePos, manueverNode.ProgradeButton.Position) < manueverNode.ProgradeButton.Radius)
                     {
-                        StartManeuverDrag(ManeuverDragType.Prograde, mousePos);
+                        StartManeuverDrag(ManeuverDragType.Prograde, maneuverMousePos);
                         return;
                     }
-                    else if (Vector2.Distance(mousePos, manueverNode.RetrogradeButton.Position) < manueverNode.RetrogradeButton.Radius)
+                    else if (Vector2.Distance(maneuverMousePos, manueverNode.RetrogradeButton.Position) < manueverNode.RetrogradeButton.Radius)
                     {
-                        StartManeuverDrag(ManeuverDragType.Retrograde, mousePos);
+                        StartManeuverDrag(ManeuverDragType.Retrograde, maneuverMousePos);
                         return;
                     }
-                    else if (Vector2.Distance(mousePos, manueverNode.NormalButton.Position) < manueverNode.NormalButton.Radius)
+                    else if (Vector2.Distance(maneuverMousePos, manueverNode.NormalButton.Position) < manueverNode.NormalButton.Radius)
                     {
-                        StartManeuverDrag(ManeuverDragType.Normal, mousePos);
+                        StartManeuverDrag(ManeuverDragType.Normal, maneuverMousePos);
                         return;
                     }
-                    else if (Vector2.Distance(mousePos, manueverNode.AntinormalButton.Position) < manueverNode.AntinormalButton.Radius)
+                    else if (Vector2.Distance(maneuverMousePos, manueverNode.AntinormalButton.Position) < manueverNode.AntinormalButton.Radius)
                     {
-                        StartManeuverDrag(ManeuverDragType.Antinormal, mousePos);
+                        StartManeuverDrag(ManeuverDragType.Antinormal, maneuverMousePos);
                         return;
                     }
-                    else if (Vector2.Distance(mousePos, manueverNode.ConfirmButton.Position) < manueverNode.ConfirmButton.Radius)
+                    else if (Vector2.Distance(maneuverMousePos, manueverNode.ConfirmButton.Position) < manueverNode.ConfirmButton.Radius)
                     {
                         manueverNode.IsConfirmed = true;
                         // auto-deselect the ship when maneuver is confirmed
@@ -290,12 +322,12 @@ public class InputHandler
                         GameState.TargetOrbitingObject = null;
                         return;
                     }
-                    else if (Vector2.Distance(mousePos, manueverNode.CancelButton.Position) < manueverNode.CancelButton.Radius)
+                    else if (Vector2.Distance(maneuverMousePos, manueverNode.CancelButton.Position) < manueverNode.CancelButton.Radius)
                     {
                         selectedShip.ManeuverNode = null;
                         return;
                     }
-                    if (Vector2.Distance(mousePos, manueverNode.ScreenPosition) < UIConstants.NodeRadius)
+                    if (Vector2.Distance(maneuverMousePos, manueverNode.ScreenPosition) < UIConstants.NodeRadius)
                     {
                         manueverNode.IsDragged = true;
                         DraggedNode = manueverNode;
@@ -386,7 +418,7 @@ public class InputHandler
         var node = ship?.ManeuverNode;
         if (node == null) return;
 
-        Vector2 currentMouseWorldPos = GetMouseWorldPosition();
+        Vector2 currentMouseWorldPos = GetManeuverInteractionPosition();
         Vector2 dragVector = currentMouseWorldPos - DragStartMouseWorldPos;
         node.DragOffset = dragVector.ToNumerics();
 
@@ -439,6 +471,30 @@ public class InputHandler
                 return;
             case UIAction.ToggleOrbitsVisibility:
                 GameState.ShowAllOrbits = !GameState.ShowAllOrbits;
+                return;
+            case UIAction.ToggleViewMode:
+                if (GameState.CurrentViewMode == GameState.ViewMode.Projected)
+                {
+                    GameState.CurrentViewMode = GameState.ViewMode.Default;
+                    if (_hasDefaultViewCameraPose)
+                    {
+                        Camera.SetPose(_defaultViewCameraPosition, _defaultViewCameraRotation, _defaultViewCameraZoom);
+                        _hasDefaultViewCameraPose = false;
+                    }
+                }
+                else
+                {
+                    _defaultViewCameraPosition = Camera.Position;
+                    _defaultViewCameraRotation = Camera.Rotation;
+                    _defaultViewCameraZoom = Camera.Zoom;
+                    _hasDefaultViewCameraPose = true;
+
+                    GameState.CurrentViewMode = GameState.ViewMode.Projected;
+
+                    // if switching to projected mode, clear camera follow and reset any transitions
+                    _cameraFollowSelected = false;
+                    _hasCameraPreFocusPose = false;
+                }
                 return;
             case UIAction.ToggleShowManeuvers:
                 GameState.ShowAllManeuvers = !GameState.ShowAllManeuvers;
@@ -515,7 +571,48 @@ public class InputHandler
     private Vector2 GetMouseWorldPosition()
     {
         var screenPos = MouseState.Position.ToVector2();
+
+        if (GameState.CurrentViewMode == GameState.ViewMode.Projected)
+        {
+            // Map screen position into polar-world position used by the simulation.
+            var width = UIRenderer.ScreenWidth;
+            var height = UIRenderer.ScreenHeight;
+            const float topBuffer = 18f;
+            const float bottomBuffer = 30f;
+            var drawableHeight = Math.Max(1f, height - topBuffer - bottomBuffer);
+
+            // account for projected-view horizontal camera pan (wrapped)
+            var wrappedPanX = width > 0f ? (GameState.ProjectedPanX % width + width) % width : 0f;
+            var wrappedScreenX = width > 0f ? ((screenPos.X + wrappedPanX) % width + width) % width : screenPos.X;
+
+            // angle mapping: center X = angle 0, full width maps to -PI..PI
+            var xRel = (wrappedScreenX - (width / 2f)) / (width / 2f);
+            xRel = Math.Clamp(xRel, -1f, 1f);
+            var angle = (double)(xRel * MathF.PI);
+
+            // altitude mapping: bottom = surface (0), top = control altitude
+            var yRel = ((height - bottomBuffer) - screenPos.Y) / drawableHeight;
+            yRel = Math.Clamp(yRel, 0f, 1f);
+            var altitudeMeters = yRel * (float)GameState.CentralBody.ControlAltitudeMeters;
+            var radius = GameState.CentralBody.Radius + altitudeMeters;
+
+            var worldX = radius * Math.Cos(angle);
+            var worldY = radius * Math.Sin(angle);
+
+            return new Vector2((float)(worldX / GameConstants.RenderingScale), (float)(worldY / GameConstants.RenderingScale));
+        }
+
         return Camera.ScreenToWorld(screenPos);
+    }
+
+    private Vector2 GetManeuverInteractionPosition()
+    {
+        if (GameState.CurrentViewMode == GameState.ViewMode.Projected)
+        {
+            return MouseState.Position.ToVector2();
+        }
+
+        return GetMouseWorldPosition();
     }
 
     private void FocusCameraOnSelectedObject()

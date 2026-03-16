@@ -20,6 +20,7 @@ namespace SpaceTrafficController
 
         private GameState GameState;
         private SimulationRenderer SimulationRenderer;
+        private CartesianSimulationRenderer CartesianSimulationRenderer;
         private UIRenderer UIRenderer;
 
 
@@ -46,6 +47,7 @@ namespace SpaceTrafficController
             Camera = new Camera2D(GraphicsDevice);
             SpriteBatch = new SpriteBatch(GraphicsDevice);
             SimulationRenderer = new SimulationRenderer(GraphicsDevice ,SpriteBatch, Camera);
+            CartesianSimulationRenderer = new CartesianSimulationRenderer(GraphicsDevice, SpriteBatch, Camera);
             UIRenderer = new UIRenderer(GraphicsDevice, SpriteBatch);
             InputHandler = new InputHandler(Camera, GameState, UIRenderer);
 
@@ -70,9 +72,18 @@ namespace SpaceTrafficController
         {
             GraphicsDevice.Clear(Color.Black);
 
-            SpriteBatch.Begin(transformMatrix: Camera.GetTransform());
-            SimulationRenderer.DrawWorld(GameState);
-            SpriteBatch.End();
+            if (GameState.CurrentViewMode == GameState.ViewMode.Projected)
+            {
+                SpriteBatch.Begin();
+                CartesianSimulationRenderer.DrawWorld(GameState);
+                SpriteBatch.End();
+            }
+            else
+            {
+                SpriteBatch.Begin(transformMatrix: Camera.GetTransform());
+                SimulationRenderer.DrawWorld(GameState);
+                SpriteBatch.End();
+            }
 
             SpriteBatch.Begin();
             UIRenderer.Draw(GameState);

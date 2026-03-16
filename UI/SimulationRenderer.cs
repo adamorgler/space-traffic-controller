@@ -14,21 +14,13 @@ using System.Linq;
 
 namespace SpaceTrafficController.UI;
 
-public class SimulationRenderer
+public class SimulationRenderer : SimulationRendererBase
 {
-    private readonly GraphicsDevice GraphicsDevice;
-    private readonly SpriteBatch SpriteBatch;
-    private readonly Camera2D Camera;
     private readonly BasicEffect BasicEffect;
-    private MouseState MouseState;
-
-    private const int Scale = GameConstants.RenderingScale;
 
     public SimulationRenderer(GraphicsDevice graphicsDevice, SpriteBatch spriteBatch, Camera2D camera)
+        : base(graphicsDevice, spriteBatch, camera)
     {
-        GraphicsDevice = graphicsDevice;
-        SpriteBatch = spriteBatch;
-        Camera = camera;
         BasicEffect = new BasicEffect(GraphicsDevice)
         {
             VertexColorEnabled = true,
@@ -47,7 +39,7 @@ public class SimulationRenderer
         DrawBody();
 
         // default orbit color for the global/maneuver displays
-        var orbitDefaultColor = Color.LightGray * 0.6f;
+        var orbitDefaultColor = OrbitDefaultColor;
 
         // Global orbit visibility (top-right toggle)
         if (gameState.ShowAllOrbits)
@@ -77,7 +69,7 @@ public class SimulationRenderer
                 {
                     // draw the current orbit faintly and then use DrawManueverNode
                     DrawOrbit(ship.Orbit, orbitDefaultColor);
-                    DrawManueverNode(ship);
+                    DrawManueverNode(ship, drawButtons: false);
                 }
                 catch
                 {
@@ -96,8 +88,8 @@ public class SimulationRenderer
         if (selectedShip is not null && target is not null)
         {
             var targetOrbit = target.Orbit;
-            DrawOrbit(targetOrbit, Color.Cyan * 0.55f);
-            DrawApsisMarkers(targetOrbit, Color.Cyan * 0.75f);
+            DrawOrbit(targetOrbit, TargetOrbitColor);
+            DrawApsisMarkers(targetOrbit, TargetApsisColor);
 
             // prefer predicted orbit for the selected ship if it has a maneuver node
             Orbit shipOrbitForApproach = selectedShip.Orbit;
@@ -121,12 +113,10 @@ public class SimulationRenderer
         }
     }
 
-
-
     private void DrawBody()
     {
         var body = GameState.CentralBody;
-        int radius = (int) (body.Radius / Scale);
+        int radius = (int)(body.Radius / Scale);
         SpriteBatch.DrawCircle(new Vector2(0, 0), radius, 360, Color.Wheat, radius);
         DrawPlanetLongitudeLines(body);
         DrawPlanetOutline(body);
@@ -196,8 +186,8 @@ public class SimulationRenderer
             if (ship.IsSelected)
             {
                 var orbit = ship.Orbit;
-                DrawOrbit(orbit, Color.White);
-                DrawApsisMarkers(orbit, Color.White);
+                DrawOrbit(orbit, SelectedOrbitColor);
+                DrawApsisMarkers(orbit, SelectedOrbitColor);
                 if (ship.ManeuverNode is null)
                     DrawOrbitMouseIntersection(orbit);
                 if (ship.ManeuverNode is not null)
@@ -207,8 +197,8 @@ public class SimulationRenderer
                 var destinationOrbit = GetDestinationOrbit(ship);
                 if (destinationOrbit is not null)
                 {
-                    DrawOrbit(destinationOrbit, Color.Cyan * 0.55f);
-                    DrawApsisMarkers(destinationOrbit, Color.Cyan * 0.75f);
+                    DrawOrbit(destinationOrbit, TargetOrbitColor);
+                    DrawApsisMarkers(destinationOrbit, TargetApsisColor);
 
                     // if the ship has a maneuver node, prefer the predicted orbit for closest-approach
                     Orbit orbitForApproach = orbit;
@@ -230,17 +220,17 @@ public class SimulationRenderer
             Color seperationCircleColor;
             if (!ship.Status.IsControllable)
             {
-                shipColor = Color.LightGray;
-                seperationCircleColor = Color.LightGray;
+                shipColor = UncontrolledShipColor;
+                seperationCircleColor = UncontrolledShipColor;
             }
             else
             {
-                shipColor = ship.IsSelected ? Color.Gold : Color.LimeGreen;
-                seperationCircleColor = ship.Status.IsEncroached ? Color.Red : Color.Green;
+                shipColor = ship.IsSelected ? SelectedShipColor : ActiveShipColor;
+                seperationCircleColor = ship.Status.IsEncroached ? EncroachedSeparationColor : SafeSeparationColor;
 
             }
-            SpriteBatch.DrawRectangle(position.X - (size / 2 ), position.Y - (size / 2 ), size , size , shipColor, 1.5f);
-            
+            SpriteBatch.DrawRectangle(position.X - (size / 2), position.Y - (size / 2), size, size, shipColor, 1.5f);
+
             // seperation circles
             CircleF seperationCircle = new CircleF() { Center = position, Radius = GameConstants.ShipSepration / 2 / Scale };
             SpriteBatch.DrawCircle(seperationCircle, 20, seperationCircleColor, 1.5f);
@@ -256,7 +246,7 @@ public class SimulationRenderer
 
             if (station.IsSelected)
             {
-                DrawOrbit(station.Orbit, Color.White);
+                DrawOrbit(station.Orbit, SelectedOrbitColor);
             }
 
             bool shipTargetsStation = selectedShip?.Destination is StationDestination stationDestination
@@ -265,7 +255,7 @@ public class SimulationRenderer
 
             DrawStationControlArea(station, shouldDrawArrows);
 
-            Color stationColor = station.IsSelected ? Color.Gold : Color.AliceBlue;
+            Color stationColor = station.IsSelected ? SelectedStationColor : StationColor;
             SpriteBatch.DrawCircle(position.X, position.Y, size, 36, stationColor, 1.5f);
         }
     }
@@ -288,7 +278,7 @@ public class SimulationRenderer
 
         foreach (var path in paths)
         {
-            DrawDashedPolyline(path, Color.LightSkyBlue, 1f / Camera.Zoom, dashLength: 1.5d, gapLength: 0.75d);
+            DrawDashedPolyline(path, ControlAreaColor, 1f / Camera.Zoom, dashLength: 1.5d, gapLength: 0.75d);
         }
 
         if (drawArrows)
@@ -318,19 +308,10 @@ public class SimulationRenderer
             motionSign = 1;
         }
 
-        DrawOrbitChevronArrow(centerAngle + arrivalAngle + arrowOffsetAngle, outerRadius, motionSign, alongOrbit: false, Color.LimeGreen);
-        DrawOrbitChevronArrow(centerAngle - arrivalAngle - arrowOffsetAngle, innerRadius, motionSign, alongOrbit: true, Color.LimeGreen);
-        DrawOrbitChevronArrow(centerAngle + departureAngle + arrowOffsetAngle, innerRadius, motionSign, alongOrbit: true, Color.Red);
-        DrawOrbitChevronArrow(centerAngle - departureAngle - arrowOffsetAngle, outerRadius, motionSign, alongOrbit: false, Color.Red);
-    }
-
-    private static Orbit? GetDestinationOrbit(Ship ship)
-    {
-        if (ship.Destination is StationDestination stationDest)
-        {
-            return stationDest.Station.Orbit;
-        }
-        return null;
+        DrawOrbitChevronArrow(centerAngle + arrivalAngle + arrowOffsetAngle, outerRadius, motionSign, alongOrbit: false, ArrivalArrowColor);
+        DrawOrbitChevronArrow(centerAngle - arrivalAngle - arrowOffsetAngle, innerRadius, motionSign, alongOrbit: true, ArrivalArrowColor);
+        DrawOrbitChevronArrow(centerAngle + departureAngle + arrowOffsetAngle, innerRadius, motionSign, alongOrbit: true, DepartureArrowColor);
+        DrawOrbitChevronArrow(centerAngle - departureAngle - arrowOffsetAngle, outerRadius, motionSign, alongOrbit: false, DepartureArrowColor);
     }
 
     private void DrawApsisMarkers(Orbit orbit, Color color)
@@ -375,22 +356,17 @@ public class SimulationRenderer
 
     private void DrawClosestApproach(Orbit shipOrbit, Orbit destOrbit, HasOrbit? shipObj = null, HasOrbit? destObj = null)
     {
-        const int CoarseSamples = 120;
-        const int FineSamples = 40;
-        const double FineWindow = 0.15d; // radians around best coarse sample
-
         // coarse pass: primary best approach
-        var (bestShipAngle, bestDestAngle) = FindClosestApproachAngles(shipOrbit, destOrbit, CoarseSamples);
+        var (bestShipAngle, bestDestAngle) = FindClosestApproachAngles(shipOrbit, destOrbit, ClosestApproachCoarseSamples);
         // refine primary
         (bestShipAngle, bestDestAngle) = RefineClosestApproach(
             shipOrbit, destOrbit,
             bestShipAngle, bestDestAngle,
-            FineWindow, FineSamples);
+            ClosestApproachFineWindow, ClosestApproachFineSamples);
 
         // try to find a secondary approach (for bisecting/crossing orbits)
-        const double ExclusionWindow = 0.6d; // radians to exclude around primary ship angle
         var (secondShipAngle, secondDestAngle, secondDistSq) = FindClosestApproachAnglesWithExclusion(
-            shipOrbit, destOrbit, CoarseSamples, bestShipAngle, ExclusionWindow);
+            shipOrbit, destOrbit, ClosestApproachCoarseSamples, bestShipAngle, ClosestApproachExclusionWindow);
 
         var approaches = new List<(double shipAngle, double destAngle)> { (bestShipAngle, bestDestAngle) };
         // if second approach found and meaningfully different, refine and include
@@ -400,7 +376,7 @@ public class SimulationRenderer
             (secondShipAngle, secondDestAngle) = RefineClosestApproach(
                 shipOrbit, destOrbit,
                 secondShipAngle, secondDestAngle,
-                FineWindow, FineSamples);
+                ClosestApproachFineWindow, ClosestApproachFineSamples);
 
             // ensure second is not a duplicate of the first (angular separation)
             double angSep = AngularDistance(bestShipAngle, secondShipAngle);
@@ -411,13 +387,11 @@ public class SimulationRenderer
         }
 
         // predefined single colors per approach so the user can match approach <-> predicted spot
-        var approachColors = new Color[] { Color.Purple, Color.Orange };
-
         for (int idx = 0; idx < approaches.Count; idx++)
         {
             var (sa, da) = approaches[idx];
 
-            var approachColor = approachColors[Math.Min(idx, approachColors.Length - 1)];
+            var approachColor = ClosestApproachColors[Math.Min(idx, ClosestApproachColors.Length - 1)];
 
             // compute approach positions and distance (meters)
             var shipPosD = shipOrbit.GetPositionAtAngleD(sa);
@@ -427,11 +401,11 @@ public class SimulationRenderer
             var approachDistanceMeters = Math.Sqrt((dx * dx) + (dy * dy));
 
             // draw white dotted line on the closest approach only if distance > 5km
-            if (approachDistanceMeters > 5000d)
+            if (approachDistanceMeters > ClosestApproachLineThresholdMeters)
             {
                 var shipScreen = shipOrbit.GetPositionAtAngle(sa) / Scale;
                 var destScreen = destOrbit.GetPositionAtAngle(da) / Scale;
-                DrawDashedLine(shipScreen, destScreen, Color.White, 1.2f / Camera.Zoom, 6f / Camera.Zoom, 4f / Camera.Zoom);
+                DrawDashedLine(shipScreen, destScreen, ClosestApproachDashColor, 1.2f / Camera.Zoom, 6f / Camera.Zoom, 4f / Camera.Zoom);
             }
 
             // draw inbound chevrons at the approach points (color-coded, solid)
@@ -462,7 +436,7 @@ public class SimulationRenderer
                             var shipCenter = (shipPredictedD / Scale).ToVector2();
                             var destCenter = (destPredictedD / Scale).ToVector2();
                             var safe = distMeters >= GameConstants.ShipSepration;
-                            var col = safe ? Color.LimeGreen : Color.Red;
+                            var col = safe ? ActiveShipColor : EncroachedSeparationColor;
                             SpriteBatch.DrawCircle(shipCenter, circleRadiusScreen, 36, col, 1.5f / Camera.Zoom);
                             SpriteBatch.DrawCircle(destCenter, circleRadiusScreen, 36, col, 1.5f / Camera.Zoom);
                         }
@@ -744,30 +718,10 @@ public class SimulationRenderer
         SpriteBatch.DrawCircle(new CircleF() { Center = worldPos, Radius = size * 0.7f }, 12, color * 0.7f, thickness);
     }
 
-    private void DrawDashedLine(Vector2 start, Vector2 end, Color color, float thickness, float dashLength, float gapLength)
+    protected override Vector2 ProjectPolarPoint(double radius, double angle)
     {
-        var segment = end - start;
-        var totalLength = segment.Length();
-        if (totalLength <= 0f) return;
-        var dir = segment / totalLength;
-        var patternLength = dashLength + gapLength;
-        var traveled = 0f;
-        while (traveled < totalLength)
-        {
-            var dashStart = start + dir * traveled;
-            var dashEnd = start + dir * Math.Min(traveled + dashLength, totalLength);
-            SpriteBatch.DrawLine(dashStart, dashEnd, color, thickness);
-            traveled += patternLength;
-        }
-    }
-
-    private static string FormatDistance(double meters)
-    {
-        if (meters >= 1_000_000d)
-            return $"{meters / 1000d:0}km";
-        if (meters >= 10_000d)
-            return $"{meters / 1000d:0.0}km";
-        return $"{meters:0}m";
+        var point = MathUtils.PolarToCartesian(angle, radius) / Scale;
+        return point.ToVector2();
     }
 
     private void DrawOrbit(Orbit orbit, Color color)
@@ -809,7 +763,7 @@ public class SimulationRenderer
         }
     }
 
-    private void DrawManueverNode(Ship ship)
+    private void DrawManueverNode(Ship ship, bool drawButtons = true)
     {
         var manueverNode = ship.ManeuverNode;
 
@@ -825,6 +779,9 @@ public class SimulationRenderer
         var nodeColor = manueverNode.IsConfirmed ? Color.LightGreen : Color.Yellow;
         var nodeThickness = UIConstants.NodeThickness / Camera.Zoom;
         SpriteBatch.DrawCircle(intersectionCircle, 12, nodeColor, nodeThickness);
+
+        if (!drawButtons)
+            return;
 
         var mousePos = Camera.ScreenToWorld(MouseState.Position.ToVector2());
         var threshhold = UIConstants.NodeButtonRadius;
@@ -901,115 +858,7 @@ public class SimulationRenderer
         }
     }
 
-    private static List<List<Vector2>> BuildStationControlPaths(
-        DVector2 stationPosition,
-        double arrivalExtent,
-        double departureExtent,
-        double halfAltitude)
-    {
-        var orbitRadius = stationPosition.Length();
-        if (orbitRadius <= 0d)
-        {
-            return new List<List<Vector2>>();
-        }
-
-        var centerAngle = Math.Atan2(stationPosition.Y, stationPosition.X);
-        var arrivalAngle = Math.Min(arrivalExtent / orbitRadius, Math.PI - 1e-4d);
-        var departureAngle = Math.Min(departureExtent / orbitRadius, Math.PI - 1e-4d);
-        var outerRadius = orbitRadius + halfAltitude;
-        var innerRadius = Math.Max(1d, orbitRadius - halfAltitude);
-        var upperSegments = Math.Max(12, (int)Math.Ceiling((arrivalAngle + departureAngle) / (5d.ToRadians())));
-        var lowerSegments = Math.Max(12, (int)Math.Ceiling((arrivalAngle + departureAngle) / (5d.ToRadians())));
-        var positiveConnectorSegments = Math.Max(4, (int)Math.Ceiling(Math.Abs(arrivalAngle - departureAngle) / (5d.ToRadians())));
-        var negativeConnectorSegments = Math.Max(4, (int)Math.Ceiling(Math.Abs(arrivalAngle - departureAngle) / (5d.ToRadians())));
-
-        return new List<List<Vector2>>
-        {
-            BuildArcPath(outerRadius, centerAngle - departureAngle, centerAngle + arrivalAngle, upperSegments),
-            BuildArcPath(innerRadius, centerAngle - arrivalAngle, centerAngle + departureAngle, lowerSegments),
-            BuildArcPath(orbitRadius, centerAngle + departureAngle, centerAngle + arrivalAngle, positiveConnectorSegments),
-            BuildArcPath(orbitRadius, centerAngle - arrivalAngle, centerAngle - departureAngle, negativeConnectorSegments),
-            BuildRadialPath(centerAngle + arrivalAngle, orbitRadius, outerRadius),
-            BuildRadialPath(centerAngle + departureAngle, innerRadius, orbitRadius),
-            BuildRadialPath(centerAngle - departureAngle, orbitRadius, outerRadius),
-            BuildRadialPath(centerAngle - arrivalAngle, innerRadius, orbitRadius),
-        };
-
-        List<Vector2> BuildArcPath(double radius, double startAngle, double endAngle, int segmentCount)
-        {
-            var points = new List<Vector2>(segmentCount + 1);
-            for (int i = 0; i <= segmentCount; i++)
-            {
-                var t = (double)i / segmentCount;
-                var angle = startAngle + ((endAngle - startAngle) * t);
-                points.Add(ToScaledPoint(radius, angle));
-            }
-
-            return points;
-        }
-
-        List<Vector2> BuildRadialPath(double angle, double startRadius, double endRadius)
-        {
-            return new List<Vector2>
-            {
-                ToScaledPoint(startRadius, angle),
-                ToScaledPoint(endRadius, angle),
-            };
-        }
-
-        Vector2 ToScaledPoint(double radius, double angle)
-        {
-            var point = MathUtils.PolarToCartesian(angle, radius) / Scale;
-            return point.ToVector2();
-        }
-    }
-
-    private void DrawDashedPolyline(IReadOnlyList<Vector2> points, Color color, float thickness, double dashLength, double gapLength)
-    {
-        if (points.Count < 2)
-        {
-            return;
-        }
-
-        var patternLength = dashLength + gapLength;
-        if (patternLength <= 0d)
-        {
-            return;
-        }
-
-        var patternOffset = 0d;
-        for (int i = 0; i < points.Count - 1; i++)
-        {
-            var segmentStart = points[i];
-            var segmentEnd = points[i + 1];
-            var segment = segmentEnd - segmentStart;
-            var segmentLength = segment.Length();
-            if (segmentLength <= 0f)
-            {
-                continue;
-            }
-
-            var direction = segment / segmentLength;
-            var distanceAlongSegment = 0d;
-            while (distanceAlongSegment < segmentLength)
-            {
-                var cyclePosition = patternOffset % patternLength;
-                var remainingInCycle = patternLength - cyclePosition;
-                var stepLength = Math.Min(remainingInCycle, segmentLength - distanceAlongSegment);
-
-                if (cyclePosition < dashLength)
-                {
-                    var drawLength = Math.Min(stepLength, dashLength - cyclePosition);
-                    var dashStart = segmentStart + (direction * (float)distanceAlongSegment);
-                    var dashEnd = segmentStart + (direction * (float)(distanceAlongSegment + drawLength));
-                    SpriteBatch.DrawLine(dashStart, dashEnd, color, thickness);
-                }
-
-                distanceAlongSegment += stepLength;
-                patternOffset += stepLength;
-            }
-        }
-    }
+    
 
     private void DrawOrbitChevronArrow(double angle, double radius, int motionSign, bool alongOrbit, Color color)
     {

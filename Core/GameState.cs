@@ -12,6 +12,9 @@ namespace SpaceTrafficController.Core;
 
 public class GameState
 {
+    public enum ViewMode { Default, Projected }
+    public ViewMode CurrentViewMode { get; set; } = ViewMode.Default;
+    public float ProjectedPanX { get; set; } = 0f;
     private const double ScorePerSuccessBase = 0.5d;
     private const double ScorePenaltyPerMistake = 1d;
     private const int MaxMultiplier = 8;
@@ -215,13 +218,7 @@ public class GameState
         foreach (var ship in Ships)
         {
             var reachedDestination = ship.Destination?.HasArrived(ship) ?? false;
-            var outsideControlArea = ship.PositionD.Length() >= controlRadius;
-            var failedArrival = !reachedDestination
-                && ship.Destination is StationDestination
-                && outsideControlArea;
-
             var shouldDespawn = reachedDestination
-                || failedArrival
                 || ship.ShouldDespawn();
 
             if (!shouldDespawn)
@@ -232,10 +229,6 @@ public class GameState
             if (reachedDestination)
             {
                 RegisterSuccessfulDestination();
-            }
-            else if (failedArrival)
-            {
-                RegisterMistake();
             }
 
             despawnedShips.Add(ship);
@@ -261,7 +254,7 @@ public class GameState
     {
         OrbitingObjects.Clear();
 
-        const double stationAltitude = 750e3;
+        const double stationAltitude = 1000e3;
         var station = new Station(new Orbit(stationAltitude, stationAltitude, 0d, 0d))
         {
             Name = "Port Atlas",
