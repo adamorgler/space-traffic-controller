@@ -33,10 +33,24 @@ public class Ship : HasOrbit
         var predictedOrbit = ManeuverNode.GetPredictedOrbit(Orbit);
         if (predictedOrbit is null)
             return;
-        var timeToNode = ManeuverNode.GetTimeToNode(Orbit);
-        if (double.IsFinite(timeToNode) && gameTime >= timeToNode)
+
+        // `Orbit.Update(gameTime)` already ran this frame.
+        // Reconstruct the pre-update state and check whether the node was crossed
+        // during this frame so the burn can be applied at the correct in-frame time.
+        var currentTrueAnomaly = Orbit.TrueAnomaly;
+        Orbit.TrueAnomaly = Orbit.PreviousTrueAnomaly;
+        var timeToNodeFromFrameStart = ManeuverNode.GetTimeToNode(Orbit);
+        Orbit.TrueAnomaly = currentTrueAnomaly;
+
+        if (double.IsFinite(timeToNodeFromFrameStart) && timeToNodeFromFrameStart <= gameTime)
         {
+            var remainingTimeAfterBurn = Math.Max(0d, gameTime - timeToNodeFromFrameStart);
             Orbit = predictedOrbit;
+            if (remainingTimeAfterBurn > 0d)
+            {
+                Orbit.Update(remainingTimeAfterBurn);
+            }
+
             ManeuverNode = null;
         }
     }
