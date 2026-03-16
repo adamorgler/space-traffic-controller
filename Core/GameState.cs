@@ -34,6 +34,8 @@ public class GameState
     public List<Ship> Ships { get { return OrbitingObjects.OfType<Ship>().ToList(); } }
     public List<Station> Stations { get { return OrbitingObjects.OfType<Station>().ToList(); } }
     public HasOrbit SelectedOrbitingObject { get; set; }
+    // An auxiliary right-click-selected orbiting object used for comparing/previewing
+    public HasOrbit TargetOrbitingObject { get; set; }
     public Ship SelectedShip
     {
         get => SelectedOrbitingObject as Ship;

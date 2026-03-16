@@ -6,6 +6,7 @@ using MonoGame.Extended;
 using SpaceTrafficController.Core;
 using SpaceTrafficController.GameObjects;
 using SpaceTrafficController.Simulation;
+using SpaceTrafficController.Simulation.OrbitingObjects;
 using SpaceTrafficController.Utilities;
 using System;
 using System.Collections.Generic;
@@ -46,6 +47,37 @@ public class SimulationRenderer
         DrawBody();
         DrawStations(gameState.Stations, gameState.SelectedShip);
         DrawShips(gameState.Ships);
+
+        // if a ship is selected and the user has right-clicked another orbiting object,
+        // render that target orbit and show closest-approach between the selected ship and the target
+        var selectedShip = gameState.SelectedShip;
+        var target = gameState.TargetOrbitingObject;
+        if (selectedShip is not null && target is not null)
+        {
+            var targetOrbit = target.Orbit;
+            DrawOrbit(targetOrbit, Color.Cyan * 0.55f);
+            DrawApsisMarkers(targetOrbit, Color.Cyan * 0.75f);
+
+            // prefer predicted orbit for the selected ship if it has a maneuver node
+            Orbit shipOrbitForApproach = selectedShip.Orbit;
+            if (selectedShip.ManeuverNode is not null)
+            {
+                var predicted = selectedShip.ManeuverNode.GetPredictedOrbit(selectedShip.Orbit);
+                if (predicted is not null)
+                    shipOrbitForApproach = predicted;
+            }
+
+            // prefer predicted orbit for target if it's a ship with a maneuver node
+            Orbit targetOrbitForApproach = targetOrbit;
+            if (target is Ship targetShip && targetShip.ManeuverNode is not null)
+            {
+                var predictedT = targetShip.ManeuverNode.GetPredictedOrbit(targetShip.Orbit);
+                if (predictedT is not null)
+                    targetOrbitForApproach = predictedT;
+            }
+
+            DrawClosestApproach(shipOrbitForApproach, targetOrbitForApproach, selectedShip, target);
+        }
     }
 
 
@@ -136,7 +168,19 @@ public class SimulationRenderer
                 {
                     DrawOrbit(destinationOrbit, Color.Cyan * 0.55f);
                     DrawApsisMarkers(destinationOrbit, Color.Cyan * 0.75f);
-                    DrawClosestApproach(orbit, destinationOrbit);
+
+                    // if the ship has a maneuver node, prefer the predicted orbit for closest-approach
+                    Orbit orbitForApproach = orbit;
+                    if (ship.ManeuverNode is not null)
+                    {
+                        var predicted = ship.ManeuverNode.GetPredictedOrbit(orbit);
+                        if (predicted is not null)
+                        {
+                            orbitForApproach = predicted;
+                        }
+                    }
+
+                    DrawClosestApproach(orbitForApproach, destinationOrbit);
                 }
             }
 
@@ -272,42 +316,272 @@ public class SimulationRenderer
         SpriteBatch.DrawLine(worldPos + new Vector2(0f, markerSize), worldPos + new Vector2(-markerSize, 0f), color, thickness);
 
         // draw label scaled and counter-rotated so it stays upright
-        var textScale = 0.5f / Camera.Zoom;
-        var labelOffset = Vector2.Transform(new Vector2(markerSize + 3f / Camera.Zoom, -markerSize), Matrix.CreateRotationZ(-Camera.Rotation));
-        SpriteBatch.DrawString(Fonts.DebugFont, label, worldPos + labelOffset, color, -Camera.Rotation, Vector2.Zero, textScale, SpriteEffects.None, 0f);
+        // increase scale for readability and add a simple outline for thickness
+        var textScale = 0.9f / Camera.Zoom;
+        var labelOffset = Vector2.Transform(new Vector2(markerSize + 6f / Camera.Zoom, -markerSize), Matrix.CreateRotationZ(-Camera.Rotation));
+        var labelPos = worldPos + labelOffset;
+        var outlineOffset = 1.2f / Camera.Zoom;
+
+        // outline (draw black text in four directions)
+        SpriteBatch.DrawString(Fonts.DebugFont, label, labelPos + new Vector2(-outlineOffset, 0f), Color.Black, -Camera.Rotation, Vector2.Zero, textScale, SpriteEffects.None, 0f);
+        SpriteBatch.DrawString(Fonts.DebugFont, label, labelPos + new Vector2(outlineOffset, 0f), Color.Black, -Camera.Rotation, Vector2.Zero, textScale, SpriteEffects.None, 0f);
+        SpriteBatch.DrawString(Fonts.DebugFont, label, labelPos + new Vector2(0f, -outlineOffset), Color.Black, -Camera.Rotation, Vector2.Zero, textScale, SpriteEffects.None, 0f);
+        SpriteBatch.DrawString(Fonts.DebugFont, label, labelPos + new Vector2(0f, outlineOffset), Color.Black, -Camera.Rotation, Vector2.Zero, textScale, SpriteEffects.None, 0f);
+
+        // main label
+        SpriteBatch.DrawString(Fonts.DebugFont, label, labelPos, color, -Camera.Rotation, Vector2.Zero, textScale, SpriteEffects.None, 0f);
     }
 
-    private void DrawClosestApproach(Orbit shipOrbit, Orbit destOrbit)
+    private void DrawClosestApproach(Orbit shipOrbit, Orbit destOrbit, HasOrbit? shipObj = null, HasOrbit? destObj = null)
     {
         const int CoarseSamples = 120;
         const int FineSamples = 40;
         const double FineWindow = 0.15d; // radians around best coarse sample
 
-        // coarse pass
+        // coarse pass: primary best approach
         var (bestShipAngle, bestDestAngle) = FindClosestApproachAngles(shipOrbit, destOrbit, CoarseSamples);
-
-        // fine pass
+        // refine primary
         (bestShipAngle, bestDestAngle) = RefineClosestApproach(
             shipOrbit, destOrbit,
             bestShipAngle, bestDestAngle,
             FineWindow, FineSamples);
 
-        var shipPos = shipOrbit.GetPositionAtAngle(bestShipAngle) / Scale;
-        var destPos = destOrbit.GetPositionAtAngle(bestDestAngle) / Scale;
+        // try to find a secondary approach (for bisecting/crossing orbits)
+        const double ExclusionWindow = 0.6d; // radians to exclude around primary ship angle
+        var (secondShipAngle, secondDestAngle, secondDistSq) = FindClosestApproachAnglesWithExclusion(
+            shipOrbit, destOrbit, CoarseSamples, bestShipAngle, ExclusionWindow);
 
-        // connecting dashed line
-        DrawDashedLine(shipPos, destPos, Color.Yellow * 0.55f, 1f / Camera.Zoom, dashLength: 4f / Camera.Zoom, gapLength: 3f / Camera.Zoom);
+        var approaches = new List<(double shipAngle, double destAngle)> { (bestShipAngle, bestDestAngle) };
+        // if second approach found and meaningfully different, refine and include
+        if (double.IsFinite(secondDistSq) && secondDistSq < double.MaxValue)
+        {
+            // refine secondary
+            (secondShipAngle, secondDestAngle) = RefineClosestApproach(
+                shipOrbit, destOrbit,
+                secondShipAngle, secondDestAngle,
+                FineWindow, FineSamples);
 
-        // approach crosshair markers
-        DrawApproachMarker(shipPos, Color.LimeGreen);
-        DrawApproachMarker(destPos, Color.Cyan);
+            // ensure second is not a duplicate of the first (angular separation)
+            double angSep = AngularDistance(bestShipAngle, secondShipAngle);
+            if (angSep > 0.05d)
+            {
+                approaches.Add((secondShipAngle, secondDestAngle));
+            }
+        }
 
-        // distance label at midpoint
-        var midpoint = (shipPos + destPos) / 2f;
-        var distanceMeters = Vector2.Distance(shipPos, destPos) * Scale;
-        var distLabel = FormatDistance(distanceMeters);
-        var textScale = 0.5f / Camera.Zoom;
-        SpriteBatch.DrawString(Fonts.DebugFont, distLabel, midpoint, Color.Yellow, -Camera.Rotation, Vector2.Zero, textScale, SpriteEffects.None, 0f);
+        // predefined single colors per approach so the user can match approach <-> predicted spot
+        var approachColors = new Color[] { Color.Purple, Color.Orange };
+
+        for (int idx = 0; idx < approaches.Count; idx++)
+        {
+            var (sa, da) = approaches[idx];
+
+            var approachColor = approachColors[Math.Min(idx, approachColors.Length - 1)];
+
+            // compute approach positions and distance (meters)
+            var shipPosD = shipOrbit.GetPositionAtAngleD(sa);
+            var destPosD = destOrbit.GetPositionAtAngleD(da);
+            var dx = shipPosD.X - destPosD.X;
+            var dy = shipPosD.Y - destPosD.Y;
+            var approachDistanceMeters = Math.Sqrt((dx * dx) + (dy * dy));
+
+            // draw white dotted line on the closest approach only if distance > 5km
+            if (approachDistanceMeters > 5000d)
+            {
+                var shipScreen = shipOrbit.GetPositionAtAngle(sa) / Scale;
+                var destScreen = destOrbit.GetPositionAtAngle(da) / Scale;
+                DrawDashedLine(shipScreen, destScreen, Color.White, 1.2f / Camera.Zoom, 6f / Camera.Zoom, 4f / Camera.Zoom);
+            }
+
+            // draw inbound chevrons at the approach points (color-coded, solid)
+            DrawInboundChevronAtOrbitPoint(shipOrbit, sa, approachColor);
+            DrawInboundChevronAtOrbitPoint(destOrbit, da, approachColor);
+
+            // compute predicted destination position when ship reaches its approach angle and draw matching chevron
+            try
+            {
+                var timeToShip = shipOrbit.TimeToTrueAomaly(sa);
+                if (!double.IsInfinity(timeToShip) && !double.IsNaN(timeToShip))
+                {
+                    var predictedDestAngle = TrueAnomalyAfterTime(destOrbit, timeToShip);
+                    DrawInboundChevronAtOrbitPoint(destOrbit, predictedDestAngle, approachColor);
+
+                    // if both the selected object and target object are ships, draw minimum safe-distance circles
+                    if (shipObj is Ship && destObj is Ship)
+                    {
+                        try
+                        {
+                            // predicted positions in meters
+                            var shipPredictedD = shipOrbit.GetPositionAtAngleD(sa);
+                            var destPredictedD = destOrbit.GetPositionAtAngleD(predictedDestAngle);
+                            var distMeters = Math.Sqrt(Math.Pow(shipPredictedD.X - destPredictedD.X, 2) + Math.Pow(shipPredictedD.Y - destPredictedD.Y, 2));
+
+                            // draw circle radius = ShipSepration/2 at each predicted position
+                            var circleRadiusScreen = (float)(GameConstants.ShipSepration / 2 / Scale);
+                            var shipCenter = (shipPredictedD / Scale).ToVector2();
+                            var destCenter = (destPredictedD / Scale).ToVector2();
+                            var safe = distMeters >= GameConstants.ShipSepration;
+                            var col = safe ? Color.LimeGreen : Color.Red;
+                            SpriteBatch.DrawCircle(shipCenter, circleRadiusScreen, 36, col, 1.5f / Camera.Zoom);
+                            SpriteBatch.DrawCircle(destCenter, circleRadiusScreen, 36, col, 1.5f / Camera.Zoom);
+                        }
+                        catch
+                        {
+                            // swallow any prediction/drawing errors
+                        }
+                    }
+                }
+            }
+            catch
+            {
+                // ignore prediction failures
+            }
+        }
+    }
+
+    private static double AngularDistance(double a, double b)
+    {
+        var diff = (a - b + Math.PI) % (2d * Math.PI) - Math.PI;
+        return Math.Abs(diff);
+    }
+
+    private static (double shipAngle, double destAngle, double distSq) FindClosestApproachAnglesWithExclusion(
+        Orbit shipOrbit, Orbit destOrbit, int sampleCount, double excludeShipAngle, double excludeHalfWidth)
+    {
+        double bestDistSq = double.MaxValue;
+        double bestShipAngle = 0d;
+        double bestDestAngle = 0d;
+
+        var shipAngles = SampleOrbitAngles(shipOrbit, sampleCount);
+        var destAngles = SampleOrbitAngles(destOrbit, sampleCount);
+
+        var shipPositions = shipAngles.Select(a => shipOrbit.GetPositionAtAngle(a)).ToList();
+        var destPositions = destAngles.Select(a => destOrbit.GetPositionAtAngle(a)).ToList();
+
+        for (int i = 0; i < sampleCount; i++)
+        {
+            var sa = shipAngles[i];
+            if (AngularDistance(sa, excludeShipAngle) < excludeHalfWidth)
+                continue;
+
+            var sp = shipPositions[i];
+            for (int j = 0; j < sampleCount; j++)
+            {
+                var dp = destPositions[j];
+                var dx = sp.X - dp.X;
+                var dy = sp.Y - dp.Y;
+                var distSq = (dx * dx) + (dy * dy);
+                if (distSq < bestDistSq)
+                {
+                    bestDistSq = distSq;
+                    bestShipAngle = sa;
+                    bestDestAngle = destAngles[j];
+                }
+            }
+        }
+
+        return (bestShipAngle, bestDestAngle, bestDistSq);
+    }
+
+    private void DrawApproachChevronAtOrbitPoint(Orbit orbit, double trueAnomaly, Color color)
+    {
+        var posD = orbit.GetPositionAtAngleD(trueAnomaly);
+        var velD = orbit.GetVelocityAtAngleD(trueAnomaly);
+        var centerAngle = Math.Atan2(posD.Y, posD.X);
+        var radius = posD.Length();
+        var motionSign = Math.Sign((posD.X * velD.Y) - (posD.Y * velD.X));
+        if (motionSign == 0) motionSign = 1;
+
+        DrawOrbitChevronArrow(centerAngle, radius, motionSign, alongOrbit: true, color: color);
+    }
+
+    private void DrawInboundChevronAtOrbitPoint(Orbit orbit, double trueAnomaly, Color color)
+    {
+        var posD = orbit.GetPositionAtAngleD(trueAnomaly);
+        var velD = orbit.GetVelocityAtAngleD(trueAnomaly);
+
+        // screen-space position
+        var pos = orbit.GetPositionAtAngle(trueAnomaly) / Scale;
+
+        var radial = Vector2.Normalize(pos);
+        if (radial.LengthSquared() <= 0f)
+            return;
+
+        var motionSign = Math.Sign((posD.X * velD.Y) - (posD.Y * velD.X));
+        if (motionSign == 0) motionSign = 1;
+
+        // tangent direction (used to spread chevron wings)
+        var tangent = new Vector2(-radial.Y, radial.X) * motionSign;
+
+        var headLength = 10f / Camera.Zoom; // distance the chevron extends inward from the orbit
+        var headWidth = 6f / Camera.Zoom; // half-width of wing spread
+
+        var tip = pos; // tip sits ON the orbit (pointed inward)
+        var tailCenter = pos + radial * headLength; // outward from the tip (flip to point inward)
+
+        var wingOffset = tangent * headWidth;
+        var thickness = 1.8f / Camera.Zoom;
+
+        // solid color, no opacity multiplication
+        SpriteBatch.DrawLine(tip, tailCenter + wingOffset, color, thickness);
+        SpriteBatch.DrawLine(tip, tailCenter - wingOffset, color, thickness);
+    }
+
+    private static double TrueAnomalyAfterTime(Orbit orbit, double deltaT)
+    {
+        if (orbit.IsEscapeTrajectory)
+        {
+            return orbit.TrueAnomaly;
+        }
+
+        double mu = PhysicalConstants.G * GameState.CentralBody.Mass;
+        double a = (orbit.Apoapsis + orbit.Periapsis + (2d * GameState.CentralBody.Radius)) / 2d;
+        double n = Math.Sqrt(mu / Math.Pow(a, 3d));
+
+        double e = (orbit.Apoapsis - orbit.Periapsis) / (orbit.Apoapsis + orbit.Periapsis + (2d * GameState.CentralBody.Radius));
+
+        // eccentric anomaly from current true anomaly
+        double f0 = orbit.TrueAnomaly;
+        double E0;
+        if (Math.Abs(e) < 1e-12)
+        {
+            E0 = f0;
+        }
+        else
+        {
+            E0 = 2d * Math.Atan(Math.Sqrt((1d - e) / (1d + e)) * Math.Tan(f0 / 2d));
+        }
+
+        double M0 = E0 - (e * Math.Sin(E0));
+        double Mtarget = M0 + n * deltaT;
+
+        // normalize Mtarget into [0, 2π)
+        Mtarget = ((Mtarget % (2d * Math.PI)) + (2d * Math.PI)) % (2d * Math.PI);
+
+        // solve Kepler's equation for E: E - e*sin(E) = Mtarget
+        double E = Mtarget; // initial guess
+        for (int i = 0; i < 60; i++)
+        {
+            double f = E - e * Math.Sin(E) - Mtarget;
+            double fp = 1d - e * Math.Cos(E);
+            if (Math.Abs(fp) < 1e-12) break;
+            double dE = f / fp;
+            E -= dE;
+            if (Math.Abs(dE) < 1e-12) break;
+        }
+
+        double ft;
+        if (Math.Abs(e) < 1e-12)
+        {
+            ft = E;
+        }
+        else
+        {
+            ft = 2d * Math.Atan(Math.Sqrt((1d + e) / (1d - e)) * Math.Tan(E / 2d));
+        }
+
+        if (ft < 0d) ft += 2d * Math.PI;
+        return ft;
     }
 
     private static (double shipAngle, double destAngle) FindClosestApproachAngles(
@@ -501,7 +775,8 @@ public class SimulationRenderer
         var predictedOrbit = manueverNode.GetPredictedOrbit(ship.Orbit);
         if (predictedOrbit is not null)
         {
-            DrawOrbit(predictedOrbit, Color.LightGray);
+            var predictedColor = manueverNode.IsConfirmed ? Color.LightGreen : Color.Yellow;
+            DrawOrbit(predictedOrbit, predictedColor);
         }
 
         var nodeRadius = UIConstants.NodeRadius / Camera.Zoom;

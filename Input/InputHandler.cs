@@ -91,6 +91,9 @@ public class InputHandler
         // update camera following state (if requested)
         UpdateCameraFollowing();
 
+        // right click target selection
+        HandleRightClick();
+
         // if the camera was focused on a selected object but that object became unselected,
         // reset the camera back to the pre-focus pose
         if (_prevSelectedOrbitingObject is not null && GameState.SelectedOrbitingObject is null)
@@ -105,6 +108,39 @@ public class InputHandler
 
         PrevKeyboardState = KeyboardState;
         PrevMouseState = MouseState;
+    }
+
+    private void HandleRightClick()
+    {
+        // only consider right-click target selection when a ship is selected
+        if (MouseState.RightButton == ButtonState.Pressed && PrevMouseState.RightButton == ButtonState.Released)
+        {
+            var selectedShip = GameState.SelectedShip;
+            if (selectedShip is null)
+            {
+                // if no ship selected, behave as a clear for target
+                GameState.TargetOrbitingObject = null;
+                return;
+            }
+
+            Vector2 mousePos = GetMouseWorldPosition();
+            var orbitingObjects = GameState.OrbitingObjects
+                .OrderBy(x => Vector2.Distance(mousePos, x.Orbit.PositionVector / GameConstants.RenderingScale))
+                .ToList();
+            float clickRadius = 10f;
+            foreach (var orbitingObject in orbitingObjects)
+            {
+                if (orbitingObject == selectedShip) continue; // ignore selecting the same ship
+                if (Vector2.Distance(mousePos, orbitingObject.Orbit.PositionVector / GameConstants.RenderingScale) < clickRadius)
+                {
+                    GameState.TargetOrbitingObject = orbitingObject;
+                    return;
+                }
+            }
+
+            // clicked empty space -> clear target
+            GameState.TargetOrbitingObject = null;
+        }
     }
 
     // ensure camera follows selected orbiting object when requested
@@ -248,6 +284,10 @@ public class InputHandler
                     else if (Vector2.Distance(mousePos, manueverNode.ConfirmButton.Position) < manueverNode.ConfirmButton.Radius)
                     {
                         manueverNode.IsConfirmed = true;
+                        // auto-deselect the ship when maneuver is confirmed
+                        selectedShip.IsSelected = false;
+                        GameState.SelectedOrbitingObject = null;
+                        GameState.TargetOrbitingObject = null;
                         return;
                     }
                     else if (Vector2.Distance(mousePos, manueverNode.CancelButton.Position) < manueverNode.CancelButton.Radius)
@@ -298,9 +338,10 @@ public class InputHandler
             }
 
             if (GameState.SelectedOrbitingObject is not null)
-                GameState.SelectedOrbitingObject.IsSelected = false;
-
+            GameState.SelectedOrbitingObject.IsSelected = false;
             GameState.SelectedOrbitingObject = null;
+            // clear any right-click target when selection is cleared
+            GameState.TargetOrbitingObject = null;
             if (DraggedNode is not null)
             {
                 DraggedNode.IsDragged = false;
@@ -417,7 +458,13 @@ public class InputHandler
                 break;
             case UIAction.ManeuverAccept:
                 if (ship.ManeuverNode is not null)
+                {
                     ship.ManeuverNode.IsConfirmed = true;
+                    // auto-deselect ship after accepting maneuver
+                    ship.IsSelected = false;
+                    GameState.SelectedOrbitingObject = null;
+                    GameState.TargetOrbitingObject = null;
+                }
                 break;
             case UIAction.ManeuverCancel:
                 ship.ManeuverNode = null;
