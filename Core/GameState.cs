@@ -52,6 +52,10 @@ public class GameState
     public double ElapsedTimeSeconds { get; private set; }
     public int CurrentWarpMultiplier => Warp;
     public bool IsPaused { get; private set; }
+    public bool IsCameraFocusedOnSelected { get; set; }
+    public double HohmannTransferTargetAltitudeMeters { get; set; }
+    public bool IsHohmannTransferDialogOpen { get; set; } = false;
+    public bool IsHohmannTransferMouseTargetSelectionActive { get; set; } = false;
     public double Score { get; private set; }
     public int ScoreMultiplier { get; private set; }
     public int TargetActiveShips => GetTargetShipCount();
@@ -70,6 +74,9 @@ public class GameState
         OrbitingObjects = new List<HasOrbit>();
         ElapsedTimeSeconds = 0d;
         IsPaused = false;
+        IsCameraFocusedOnSelected = false;
+        HohmannTransferTargetAltitudeMeters = Math.Clamp(500e3, 0d, CentralBody.ControlAltitudeMeters);
+        IsHohmannTransferMouseTargetSelectionActive = false;
         Score = 6d;
         ScoreMultiplier = 1;
         _timeSinceOutboundSpawnSeconds = 0d;

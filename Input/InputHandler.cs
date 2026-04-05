@@ -51,6 +51,8 @@ public class InputHandler
         KeyboardState = Keyboard.GetState();
         MouseState = Mouse.GetState();
 
+        UpdateHohmannTransferMousePreview();
+
         if (KeyboardState.IsKeyDown(Keys.Space) && PrevKeyboardState.IsKeyUp(Keys.Space))
         {
             GameState.TogglePause();
@@ -77,7 +79,7 @@ public class InputHandler
         if (MouseState.LeftButton == ButtonState.Released && PrevMouseState.LeftButton == ButtonState.Pressed)
         {
             var selectedShip = GameState.SelectedShip;
-            var manueverNode = selectedShip?.ManeuverNode ?? null;
+            var manueverNode = GetActiveManeuverNode(selectedShip);
 
             if (DraggedNode is not null)
             {
@@ -157,6 +159,7 @@ public class InputHandler
         if (selected is null)
         {
             _cameraFollowSelected = false;
+            GameState.IsCameraFocusedOnSelected = false;
             return;
         }
 
@@ -172,7 +175,7 @@ public class InputHandler
     private void ClearTransientInputState()
     {
         var selectedShip = GameState.SelectedShip;
-        var manueverNode = selectedShip?.ManeuverNode;
+        var manueverNode = GetActiveManeuverNode(selectedShip);
 
         if (DraggedNode is not null)
         {
@@ -195,6 +198,17 @@ public class InputHandler
             if (uiResult is not null)
             {
                 ApplyUIAction(uiResult);
+                return;
+            }
+
+            if (GameState.IsHohmannTransferDialogOpen && GameState.IsHohmannTransferMouseTargetSelectionActive)
+            {
+                var ship = GameState.SelectedShip;
+                if (ship is not null)
+                {
+                    UpdateHohmannTransferMousePreview(forceApply: true);
+                    GameState.IsHohmannTransferMouseTargetSelectionActive = false;
+                }
             }
         }
     }
@@ -279,7 +293,7 @@ public class InputHandler
         Vector2 mousePos = GetMouseWorldPosition();
         Vector2 maneuverMousePos = GetManeuverInteractionPosition();
         var selectedShip = GameState.SelectedShip;
-        var manueverNode = selectedShip?.ManeuverNode ?? null;
+        var manueverNode = GetActiveManeuverNode(selectedShip);
         if (MouseState.LeftButton == ButtonState.Pressed && PrevMouseState.LeftButton == ButtonState.Released)
         {
             // UI panel buttons take priority (screen-space)
@@ -289,6 +303,18 @@ public class InputHandler
                 ApplyUIAction(uiResult);
                 return;
             }
+
+            if (GameState.IsHohmannTransferDialogOpen)
+            {
+                if (GameState.IsHohmannTransferMouseTargetSelectionActive && selectedShip is not null)
+                {
+                    UpdateHohmannTransferMousePreview(forceApply: true);
+                    GameState.IsHohmannTransferMouseTargetSelectionActive = false;
+                }
+
+                return;
+            }
+
             if (selectedShip is not null)
             {
                 if (manueverNode is not null)
@@ -316,15 +342,19 @@ public class InputHandler
                     else if (Vector2.Distance(maneuverMousePos, manueverNode.ConfirmButton.Position) < manueverNode.ConfirmButton.Radius)
                     {
                         manueverNode.IsConfirmed = true;
-                        // auto-deselect the ship when maneuver is confirmed
-                        selectedShip.IsSelected = false;
-                        GameState.SelectedOrbitingObject = null;
-                        GameState.TargetOrbitingObject = null;
                         return;
                     }
                     else if (Vector2.Distance(maneuverMousePos, manueverNode.CancelButton.Position) < manueverNode.CancelButton.Radius)
                     {
-                        selectedShip.ManeuverNode = null;
+                        if (ReferenceEquals(manueverNode, selectedShip.NextManeuverNode))
+                        {
+                            selectedShip.NextManeuverNode = null;
+                        }
+                        else
+                        {
+                            selectedShip.ManeuverNode = null;
+                            selectedShip.NextManeuverNode = null;
+                        }
                         return;
                     }
                     if (Vector2.Distance(maneuverMousePos, manueverNode.ScreenPosition) < UIConstants.NodeRadius)
@@ -334,21 +364,47 @@ public class InputHandler
                         return;
                     }
                 }
-                var orbitPos = OrbitUtils.GetOrbitIntersectionNearMouse(selectedShip.Orbit, mousePos.ToNumerics());
-                if (orbitPos is not null && manueverNode is null)
+
+                if (selectedShip.ManeuverNode is null)
                 {
-                    // Disallow creating maneuver nodes at positions outside the control radius
-                    var radiusAtPos = selectedShip.Orbit.GetRadiusFromFoci(orbitPos.TrueAnomaly);
-                    var controlRadius = GameState.CentralBody.ControlRadius;
-                    if (radiusAtPos < controlRadius)
+                    var orbitPos = OrbitUtils.GetOrbitIntersectionNearMouse(selectedShip.Orbit, mousePos.ToNumerics());
+                    if (orbitPos is not null)
                     {
-                        selectedShip.ManeuverNode = new ManeuverNode()
+                        // Disallow creating maneuver nodes at positions outside the control radius
+                        var radiusAtPos = selectedShip.Orbit.GetRadiusFromFoci(orbitPos.TrueAnomaly);
+                        var controlRadius = GameState.CentralBody.ControlRadius;
+                        if (radiusAtPos < controlRadius)
                         {
-                            TrueAnomaly = orbitPos.TrueAnomaly,
-                            ScreenPosition = orbitPos.ScreenPosition,
-                        };
+                            selectedShip.ManeuverNode = new ManeuverNode()
+                            {
+                                TrueAnomaly = orbitPos.TrueAnomaly,
+                                ScreenPosition = orbitPos.ScreenPosition,
+                            };
+                        }
+                        return;
                     }
-                    return;
+                }
+                else if (selectedShip.NextManeuverNode is null && selectedShip.ManeuverNode.IsConfirmed)
+                {
+                    var predictedOrbit = selectedShip.ManeuverNode.GetPredictedOrbit(selectedShip.Orbit);
+                    if (predictedOrbit is not null)
+                    {
+                        var orbitPos = OrbitUtils.GetOrbitIntersectionNearMouse(predictedOrbit, mousePos.ToNumerics());
+                        if (orbitPos is not null)
+                        {
+                            var radiusAtPos = predictedOrbit.GetRadiusFromFoci(orbitPos.TrueAnomaly);
+                            var controlRadius = GameState.CentralBody.ControlRadius;
+                            if (radiusAtPos < controlRadius)
+                            {
+                                selectedShip.NextManeuverNode = new ManeuverNode()
+                                {
+                                    TrueAnomaly = orbitPos.TrueAnomaly,
+                                    ScreenPosition = orbitPos.ScreenPosition,
+                                };
+                            }
+                            return;
+                        }
+                    }
                 }
             }
 
@@ -388,19 +444,21 @@ public class InputHandler
         {
             Vector2 mousePos = GetMouseWorldPosition();
             var ship = GameState.SelectedShip;
-            if (ship is null || ship.ManeuverNode is null)
+            var activeNode = GetActiveManeuverNode(ship);
+            var activeOrbit = GetActiveManeuverBaseOrbit(ship);
+            if (ship is null || activeNode is null || activeOrbit is null)
                 return;
 
-            var orbitPos = OrbitUtils.GetOrbitIntersectionNearMouse(ship.Orbit, mousePos.ToNumerics(), float.MaxValue);
+            var orbitPos = OrbitUtils.GetOrbitIntersectionNearMouse(activeOrbit, mousePos.ToNumerics(), float.MaxValue);
             if (orbitPos is not null)
             {
-                var radiusAtPos = ship.Orbit.GetRadiusFromFoci(orbitPos.TrueAnomaly);
+                var radiusAtPos = activeOrbit.GetRadiusFromFoci(orbitPos.TrueAnomaly);
                 var controlRadius = GameState.CentralBody.ControlRadius;
                 if (radiusAtPos < controlRadius)
                 {
-                    ship.ManeuverNode.TrueAnomaly = orbitPos.TrueAnomaly;
-                    ship.ManeuverNode.ScreenPosition = orbitPos.ScreenPosition;
-                    ship.ManeuverNode.IsConfirmed = false;
+                    activeNode.TrueAnomaly = orbitPos.TrueAnomaly;
+                    activeNode.ScreenPosition = orbitPos.ScreenPosition;
+                    activeNode.IsConfirmed = false;
                 }
             }
         }
@@ -415,7 +473,7 @@ public class InputHandler
     private void HandleManeuverDeltaVDrag()
     {
         var ship = GameState.SelectedShip;
-        var node = ship?.ManeuverNode;
+        var node = GetActiveManeuverNode(ship);
         if (node == null) return;
 
         Vector2 currentMouseWorldPos = GetManeuverInteractionPosition();
@@ -453,7 +511,30 @@ public class InputHandler
 
     private void ApplyUIAction(UIButtonResult result)
     {
-        if (GameState.IsPaused && result.Action != UIAction.PauseToggle)
+        // Allow UI actions that don't depend on game state, or modal actions
+        var allowedWhenPaused = result.Action switch
+        {
+            UIAction.PauseToggle => true,
+            UIAction.WarpDecrease => true,
+            UIAction.WarpIncrease => true,
+            UIAction.ToggleOrbitsVisibility => true,
+            UIAction.ToggleViewMode => true,
+            UIAction.ToggleShowManeuvers => true,
+            UIAction.CameraFocusSelected => true,
+            UIAction.CameraResetView => true,
+            UIAction.HohmannOpenDialog => true,
+            UIAction.HohmannAltitude10Decrease => true,
+            UIAction.HohmannAltitude10Increase => true,
+            UIAction.HohmannAltitude50Decrease => true,
+            UIAction.HohmannAltitude50Increase => true,
+            UIAction.HohmannAltitude100Decrease => true,
+            UIAction.HohmannAltitude100Increase => true,
+            UIAction.HohmannConfirm => true,
+            UIAction.HohmannCancel => true,
+            _ => false
+        };
+
+        if (GameState.IsPaused && !allowedWhenPaused)
         {
             return;
         }
@@ -494,13 +575,14 @@ public class InputHandler
                     // if switching to projected mode, clear camera follow and reset any transitions
                     _cameraFollowSelected = false;
                     _hasCameraPreFocusPose = false;
+                    GameState.IsCameraFocusedOnSelected = false;
                 }
                 return;
             case UIAction.ToggleShowManeuvers:
                 GameState.ShowAllManeuvers = !GameState.ShowAllManeuvers;
                 return;
             case UIAction.CameraFocusSelected:
-                FocusCameraOnSelectedObject();
+                ToggleCameraFocusForSelectedObject();
                 return;
             case UIAction.CameraResetView:
                 ResetCameraView();
@@ -510,6 +592,8 @@ public class InputHandler
         var ship = GameState.SelectedShip;
         if (ship is null) return;
 
+        var activeNode = GetActiveManeuverNode(ship);
+
         switch (result.Action)
         {
             case UIAction.CircularizeAtPE:
@@ -518,31 +602,92 @@ public class InputHandler
             case UIAction.CircularizeAtAP:
                 ApplyCircularize(ship, atPeriapsis: false);
                 break;
-            case UIAction.ManeuverAccept:
+            case UIAction.HohmannOpenDialog:
+                // Cancel any existing maneuver nodes
+                ship.ManeuverNode = null;
+                ship.NextManeuverNode = null;
+                GameState.IsHohmannTransferDialogOpen = true;
+                GameState.IsHohmannTransferMouseTargetSelectionActive = true;
+                ApplyQuickHohmannTransferToAltitude(ship);
+                break;
+            case UIAction.HohmannAltitude10Decrease:
+                GameState.HohmannTransferTargetAltitudeMeters = Math.Max(0d, GameState.HohmannTransferTargetAltitudeMeters - 10_000d);
+                ApplyQuickHohmannTransferToAltitude(ship);
+                break;
+            case UIAction.HohmannAltitude10Increase:
+                GameState.HohmannTransferTargetAltitudeMeters = Math.Min(
+                    GameState.CentralBody.ControlAltitudeMeters,
+                    GameState.HohmannTransferTargetAltitudeMeters + 10_000d);
+                ApplyQuickHohmannTransferToAltitude(ship);
+                break;
+            case UIAction.HohmannAltitude50Decrease:
+                GameState.HohmannTransferTargetAltitudeMeters = Math.Max(0d, GameState.HohmannTransferTargetAltitudeMeters - 50_000d);
+                ApplyQuickHohmannTransferToAltitude(ship);
+                break;
+            case UIAction.HohmannAltitude50Increase:
+                GameState.HohmannTransferTargetAltitudeMeters = Math.Min(
+                    GameState.CentralBody.ControlAltitudeMeters,
+                    GameState.HohmannTransferTargetAltitudeMeters + 50_000d);
+                ApplyQuickHohmannTransferToAltitude(ship);
+                break;
+            case UIAction.HohmannAltitude100Decrease:
+                GameState.HohmannTransferTargetAltitudeMeters = Math.Max(0d, GameState.HohmannTransferTargetAltitudeMeters - 100_000d);
+                ApplyQuickHohmannTransferToAltitude(ship);
+                break;
+            case UIAction.HohmannAltitude100Increase:
+                GameState.HohmannTransferTargetAltitudeMeters = Math.Min(
+                    GameState.CentralBody.ControlAltitudeMeters,
+                    GameState.HohmannTransferTargetAltitudeMeters + 100_000d);
+                ApplyQuickHohmannTransferToAltitude(ship);
+                break;
+            case UIAction.HohmannConfirm:
+                ApplyQuickHohmannTransferToAltitude(ship);
                 if (ship.ManeuverNode is not null)
                 {
                     ship.ManeuverNode.IsConfirmed = true;
-                    // auto-deselect ship after accepting maneuver
-                    ship.IsSelected = false;
-                    GameState.SelectedOrbitingObject = null;
-                    GameState.TargetOrbitingObject = null;
+                }
+                if (ship.NextManeuverNode is not null)
+                {
+                    ship.NextManeuverNode.IsConfirmed = true;
+                }
+                GameState.IsHohmannTransferDialogOpen = false;
+                GameState.IsHohmannTransferMouseTargetSelectionActive = false;
+                break;
+            case UIAction.HohmannCancel:
+                GameState.IsHohmannTransferDialogOpen = false;
+                GameState.IsHohmannTransferMouseTargetSelectionActive = false;
+                ship.ManeuverNode = null;
+                ship.NextManeuverNode = null;
+                break;
+            case UIAction.ManeuverAccept:
+                if (activeNode is not null)
+                {
+                    activeNode.IsConfirmed = true;
                 }
                 break;
             case UIAction.ManeuverCancel:
-                ship.ManeuverNode = null;
+                if (ReferenceEquals(activeNode, ship.NextManeuverNode))
+                {
+                    ship.NextManeuverNode = null;
+                }
+                else
+                {
+                    ship.ManeuverNode = null;
+                    ship.NextManeuverNode = null;
+                }
                 break;
             case UIAction.ManeuverProgradeStep:
-                if (ship.ManeuverNode is not null)
+                if (activeNode is not null)
                 {
-                    ship.ManeuverNode.ProgradeDeltaV += result.StepValue;
-                    ship.ManeuverNode.IsConfirmed = false;
+                    activeNode.ProgradeDeltaV += result.StepValue;
+                    activeNode.IsConfirmed = false;
                 }
                 break;
             case UIAction.ManeuverNormalStep:
-                if (ship.ManeuverNode is not null)
+                if (activeNode is not null)
                 {
-                    ship.ManeuverNode.NormalDeltaV += result.StepValue;
-                    ship.ManeuverNode.IsConfirmed = false;
+                    activeNode.NormalDeltaV += result.StepValue;
+                    activeNode.IsConfirmed = false;
                 }
                 break;
         }
@@ -566,6 +711,71 @@ public class InputHandler
             ScreenPosition = screenPos,
             ProgradeDeltaV = vCirc - vCurrent,
         };
+        ship.NextManeuverNode = null;
+    }
+
+    private void ApplyQuickHohmannTransferToAltitude(Ship ship)
+    {
+        ship.ApplyQuickHohmannTransferToAltitude(GameState.HohmannTransferTargetAltitudeMeters);
+    }
+
+    private void UpdateHohmannTransferMousePreview(bool forceApply = false)
+    {
+        if (!GameState.IsHohmannTransferDialogOpen)
+        {
+            GameState.IsHohmannTransferMouseTargetSelectionActive = false;
+            return;
+        }
+
+        if (!GameState.IsHohmannTransferMouseTargetSelectionActive)
+            return;
+
+        var ship = GameState.SelectedShip;
+        if (ship is null)
+            return;
+
+        var mouseWorldPos = GetMouseWorldPosition();
+        var radiusMeters = mouseWorldPos.ToNumerics().Length() * GameConstants.RenderingScale;
+        if (!double.IsFinite(radiusMeters))
+            return;
+
+        var altitudeMeters = radiusMeters - GameState.CentralBody.Radius;
+        altitudeMeters = Math.Clamp(altitudeMeters, 0d, GameState.CentralBody.ControlAltitudeMeters);
+        altitudeMeters = Math.Round(altitudeMeters / 10_000d) * 10_000d;
+
+        var changed = Math.Abs(altitudeMeters - GameState.HohmannTransferTargetAltitudeMeters) > 0.1d;
+        if (changed)
+        {
+            GameState.HohmannTransferTargetAltitudeMeters = altitudeMeters;
+        }
+
+        if (changed || forceApply)
+        {
+            ApplyQuickHohmannTransferToAltitude(ship);
+        }
+    }
+
+    private static ManeuverNode GetActiveManeuverNode(Ship ship)
+    {
+        if (ship is null)
+            return null;
+
+        return ship.NextManeuverNode ?? ship.ManeuverNode;
+    }
+
+    private static Orbit GetActiveManeuverBaseOrbit(Ship ship)
+    {
+        if (ship is null)
+            return null;
+
+        if (ship.NextManeuverNode is not null && ship.ManeuverNode is not null)
+        {
+            var predicted = ship.ManeuverNode.GetPredictedOrbit(ship.Orbit);
+            if (predicted is not null)
+                return predicted;
+        }
+
+        return ship.Orbit;
     }
 
     private Vector2 GetMouseWorldPosition()
@@ -637,12 +847,26 @@ public class InputHandler
         Camera.StartSelectionTransition();
         Camera.SetPose(targetPosition, targetRotation, 2f);
         _cameraFollowSelected = true;
+        GameState.IsCameraFocusedOnSelected = true;
+    }
+
+    private void ToggleCameraFocusForSelectedObject()
+    {
+        if (_cameraFollowSelected || _hasCameraPreFocusPose)
+        {
+            ResetCameraView();
+            return;
+        }
+
+        FocusCameraOnSelectedObject();
     }
 
     private void ResetCameraView()
     {
         if (!_hasCameraPreFocusPose)
         {
+            _cameraFollowSelected = false;
+            GameState.IsCameraFocusedOnSelected = false;
             return;
         }
 
@@ -652,6 +876,7 @@ public class InputHandler
 
         _hasCameraPreFocusPose = false;
         _cameraFollowSelected = false;
+        GameState.IsCameraFocusedOnSelected = false;
     }
 
 

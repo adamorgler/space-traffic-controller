@@ -19,6 +19,7 @@ public class Ship : HasOrbit
     public DVector2 PositionD { get { return Orbit.PositionVectorD; } }
     public Vector2 Position { get { return Orbit.PositionVector; } }
     public ManeuverNode ManeuverNode { get; set; }
+    public ManeuverNode NextManeuverNode { get; set; }
     public ShipDestination Destination { get; set; }
     public ShipTrafficLane TrafficLane { get; set; } = ShipTrafficLane.None;
 
@@ -51,7 +52,8 @@ public class Ship : HasOrbit
                 Orbit.Update(remainingTimeAfterBurn);
             }
 
-            ManeuverNode = null;
+            ManeuverNode = NextManeuverNode;
+            NextManeuverNode = null;
         }
     }
 
@@ -70,6 +72,165 @@ public class Ship : HasOrbit
         // Despawn when escape trajectory passes beyond the control altitude
         var controlRadius = GameState.CentralBody.ControlRadius;
         return PositionD.Length() >= controlRadius;
+    }
+
+    public Orbit GetQuickHohmannTransferOrbit(double targetAltitudeMeters)
+    {
+        var baseOrbit = Orbit;
+        if (ManeuverNode is not null && ManeuverNode.IsConfirmed)
+        {
+            var predicted = ManeuverNode.GetPredictedOrbit(Orbit);
+            if (predicted is not null)
+                baseOrbit = predicted;
+        }
+
+        if (!TryBuildQuickHohmannNodes(targetAltitudeMeters, baseOrbit, out var firstBurnNode, out _))
+        {
+            return null;
+        }
+
+        return firstBurnNode.GetPredictedOrbit(baseOrbit);
+    }
+
+    public bool ApplyQuickHohmannTransferToAltitude(double targetAltitudeMeters)
+    {
+        Orbit baseOrbit;
+        var writeAsSecondNode = false;
+
+        // Only append/replace as a second node when the first node is already confirmed.
+        // If nodes are unconfirmed (e.g. transfer dialog preview), rebuild both nodes from current orbit.
+        if (NextManeuverNode is not null && ManeuverNode is not null && ManeuverNode.IsConfirmed)
+        {
+            var predictedFirstForReplace = ManeuverNode.GetPredictedOrbit(Orbit);
+            if (predictedFirstForReplace is null)
+            {
+                return false;
+            }
+
+            baseOrbit = predictedFirstForReplace;
+            writeAsSecondNode = true;
+        }
+        else if (ManeuverNode is not null && ManeuverNode.IsConfirmed)
+        {
+            var predictedFirst = ManeuverNode.GetPredictedOrbit(Orbit);
+            if (predictedFirst is null)
+            {
+                return false;
+            }
+
+            baseOrbit = predictedFirst;
+            writeAsSecondNode = true;
+        }
+        else
+        {
+            baseOrbit = Orbit;
+        }
+
+        if (!TryBuildQuickHohmannNodes(targetAltitudeMeters, baseOrbit, out var firstBurnNode, out var secondBurnNode))
+        {
+            return false;
+        }
+
+        if (writeAsSecondNode)
+        {
+            NextManeuverNode = firstBurnNode;
+        }
+        else
+        {
+            ManeuverNode = firstBurnNode;
+            NextManeuverNode = secondBurnNode;
+        }
+
+        return true;
+    }
+
+    private static bool TryBuildQuickHohmannNodes(
+        double targetAltitudeMeters,
+        Orbit baseOrbit,
+        out ManeuverNode firstBurnNode,
+        out ManeuverNode secondBurnNode)
+    {
+        firstBurnNode = null;
+        secondBurnNode = null;
+
+        if (baseOrbit.IsEscapeTrajectory)
+        {
+            return false;
+        }
+
+        var targetRadius = GameState.CentralBody.Radius + targetAltitudeMeters;
+        if (!double.IsFinite(targetRadius) || targetRadius <= 0d)
+        {
+            return false;
+        }
+
+        var burnAtPeriapsis = IsPeriapsisSooner(baseOrbit);
+        var burnTrueAnomaly = burnAtPeriapsis ? 0d : Math.PI;
+        var burnRadius = burnAtPeriapsis ? baseOrbit.Perigee : baseOrbit.Apogee;
+
+        if (!double.IsFinite(burnRadius) || burnRadius <= 0d)
+        {
+            return false;
+        }
+
+        var mu = PhysicalConstants.G * GameState.CentralBody.Mass;
+        var transferSemiMajorAxis = (burnRadius + targetRadius) / 2d;
+        if (transferSemiMajorAxis <= 0d || !double.IsFinite(transferSemiMajorAxis))
+        {
+            return false;
+        }
+
+        var transferSpeedSquared = mu * ((2d / burnRadius) - (1d / transferSemiMajorAxis));
+        if (transferSpeedSquared <= 0d || !double.IsFinite(transferSpeedSquared))
+        {
+            return false;
+        }
+
+        var transferSpeed = Math.Sqrt(transferSpeedSquared);
+
+        firstBurnNode = new ManeuverNode()
+        {
+            TrueAnomaly = burnTrueAnomaly,
+            ScreenPosition = (baseOrbit.GetPositionAtAngleD(burnTrueAnomaly) / GameConstants.RenderingScale).ToVector2(),
+            ProgradeDeltaV = transferSpeed - baseOrbit.GetVelocityMagnitudeAtAngle(burnTrueAnomaly),
+        };
+
+        var transferOrbit = firstBurnNode.GetPredictedOrbit(baseOrbit);
+        if (transferOrbit is null)
+        {
+            return false;
+        }
+
+        // Determine whether the first-burn point is periapsis or apoapsis on the transfer orbit.
+        // If transfer speed at burn radius is above circular speed, burn point is periapsis; otherwise apoapsis.
+        var circularSpeedAtBurnRadius = Math.Sqrt(mu / burnRadius);
+        var firstBurnPointIsPeriapsis = transferSpeed >= circularSpeedAtBurnRadius;
+        var secondBurnTrueAnomaly = firstBurnPointIsPeriapsis ? Math.PI : 0d;
+        var secondBurnSpeed = transferOrbit.GetVelocityMagnitudeAtAngle(secondBurnTrueAnomaly);
+        if (!double.IsFinite(secondBurnSpeed))
+        {
+            return false;
+        }
+
+        secondBurnNode = new ManeuverNode()
+        {
+            TrueAnomaly = secondBurnTrueAnomaly,
+            ScreenPosition = (transferOrbit.GetPositionAtAngleD(secondBurnTrueAnomaly) / GameConstants.RenderingScale).ToVector2(),
+            ProgradeDeltaV = Math.Sqrt(mu / targetRadius) - secondBurnSpeed,
+        };
+
+        return true;
+    }
+
+    private static bool IsPeriapsisSooner(Orbit orbit)
+    {
+        var timeToPeriapsis = orbit.TimeToTrueAomaly(0d);
+        var timeToApoapsis = orbit.TimeToTrueAomaly(Math.PI);
+
+        if (!double.IsFinite(timeToPeriapsis)) return false;
+        if (!double.IsFinite(timeToApoapsis)) return true;
+
+        return timeToPeriapsis <= timeToApoapsis;
     }
 }
 

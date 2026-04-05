@@ -9,7 +9,7 @@ using System.Collections.Generic;
 
 namespace SpaceTrafficController.UI;
 
-public enum UIAction { None, ManeuverProgradeStep, ManeuverNormalStep, CircularizeAtPE, CircularizeAtAP, ManeuverAccept, ManeuverCancel, WarpDecrease, WarpIncrease, PauseToggle, CameraFocusSelected, CameraResetView, ToggleOrbitsVisibility, ToggleShowManeuvers, ToggleViewMode }
+public enum UIAction { None, ManeuverProgradeStep, ManeuverNormalStep, CircularizeAtPE, CircularizeAtAP, HohmannOpenDialog, HohmannAltitude10Decrease, HohmannAltitude10Increase, HohmannAltitude50Decrease, HohmannAltitude50Increase, HohmannAltitude100Decrease, HohmannAltitude100Increase, HohmannConfirm, HohmannCancel, ManeuverAccept, ManeuverCancel, WarpDecrease, WarpIncrease, PauseToggle, CameraFocusSelected, CameraResetView, ToggleOrbitsVisibility, ToggleShowManeuvers, ToggleViewMode }
 public record UIButtonResult(UIAction Action, double StepValue = 0d);
 
 public class UIRenderer
@@ -40,6 +40,8 @@ public class UIRenderer
         DrawSelectionPanel(gameState);
         DrawManeuverNodePanel(gameState);
         DrawPausedOverlay(gameState);
+        DrawHohmannTransferDialog(gameState);
+        DrawHohmannMouseAltitudeLabel(gameState);
     }
 
     public UIButtonResult? GetActionAt(Vector2 screenPos)
@@ -61,11 +63,8 @@ public class UIRenderer
         const float innerPadding = 10f;
         const float buttonGap = 6f;
         const float buttonHeight = 20f;
-        const float cameraButtonHeight = 18f;
-        const float cameraSectionGap = 8f;
         const float pauseButtonWidth = 90f;
         const float stepButtonWidth = 28f;
-        const float cameraButtonMinWidth = 190f;
 
         var timeText = $"TIME  {FormatMissionTime(gameState.ElapsedTimeSeconds)}";
         var warpText = $"WARP  x{gameState.CurrentWarpMultiplier}";
@@ -81,7 +80,7 @@ public class UIRenderer
         var buttonRowWidth = (stepButtonWidth * 2f) + pauseButtonWidth + (buttonGap * 2f);
         var panelWidth = Math.Max(Math.Max(Math.Max(timeSize.X, warpSize.X), scoreSize.X), buttonRowWidth) + (innerPadding * 2f);
         var panelHeight = timeSize.Y + warpSize.Y + scoreSize.Y + buttonHeight + (lineGap * 3f) + (innerPadding * 2f);
-        var panelX = GraphicsDevice.Viewport.Width - panelWidth - padding;
+        var panelX = padding;
         var panelY = padding;
 
         SpriteBatch.FillRectangle(panelX, panelY, panelWidth, panelHeight, new Color(0, 0, 0, 180));
@@ -112,12 +111,9 @@ public class UIRenderer
             new RectangleF(buttonStartX + stepButtonWidth + buttonGap + pauseButtonWidth + buttonGap, buttonY, stepButtonWidth, buttonHeight),
             "+",
             new UIButtonResult(UIAction.WarpIncrease));
-
-        // Camera buttons moved to the selection panel (bottom-left) so they appear
-        // next to ship/station info when an object is selected.
     }
 
-    // ── Orbit visibility panel (top-right, under time/warp) ─────────────────
+    // ── Orbit visibility panel (top-left, under time/warp) ─────────────────
     private void DrawOrbitVisibilityPanel(GameState gameState)
     {
         var font = Fonts.DebugFont;
@@ -139,7 +135,7 @@ public class UIRenderer
         var panelWidth = Math.Max(Math.Max(Math.Max(timeSize.X, warpSize.X), scoreSize.X), buttonRowWidth) + (innerPadding * 2f);
         var timePanelHeight = timeSize.Y + warpSize.Y + scoreSize.Y + buttonHeight + (lineGap * 3f) + (innerPadding * 2f);
 
-        var panelX = GraphicsDevice.Viewport.Width - panelWidth - padding;
+        var panelX = padding;
         var panelY = padding + timePanelHeight + panelGap;
 
         // three stacked buttons: orbits, maneuvers, projected view toggle
@@ -190,7 +186,7 @@ public class UIRenderer
         SpriteBatch.DrawString(font, pausedText, textPos, Color.OrangeRed, 0f, Vector2.Zero, textScale, SpriteEffects.None, 0f);
     }
 
-    // ── Selection panel (bottom-left) — shows ship or station info and camera controls
+    // ── Selection panel (top-right) — shows ship or station info
     private void DrawSelectionPanel(GameState gameState)
     {
         var selected = gameState.SelectedOrbitingObject;
@@ -204,7 +200,6 @@ public class UIRenderer
         const float btnWidth = 130f;
         const float btnGap = 8f;
         const float cameraBtnHeight = 18f;
-        const float cameraBtnGap = 8f;
 
         float additionalCircularizeHeight = 0f;
         string title = "";
@@ -238,10 +233,13 @@ public class UIRenderer
             };
         }
 
-        var cameraSectionHeight = cameraBtnHeight * 2f + cameraBtnGap + padding / 2f;
-        var panelHeight = padding * 2f + lineHeight * (1 + statLines.Length) + additionalCircularizeHeight + cameraSectionHeight;
-        var panelX = padding;
-        var panelY = GraphicsDevice.Viewport.Height - panelHeight - padding;
+        var showCameraButtons = selected is Ship;
+        var cameraSectionHeight = showCameraButtons ? (cameraBtnHeight + padding / 2f) : 0f;
+        var transferHeight = selected is Ship ? padding / 2f + btnHeight : 0f;
+
+        var panelHeight = padding * 2f + lineHeight * (1 + statLines.Length) + additionalCircularizeHeight + transferHeight + cameraSectionHeight;
+        var panelX = GraphicsDevice.Viewport.Width - panelWidth - padding;
+        var panelY = padding;
 
         SpriteBatch.FillRectangle(panelX, panelY, panelWidth, panelHeight, new Color(0, 0, 0, 180));
         SpriteBatch.DrawRectangle(panelX, panelY, panelWidth, panelHeight, Color.Gray * 0.6f, 1f);
@@ -267,26 +265,50 @@ public class UIRenderer
                 "Circularize at AP", new UIButtonResult(UIAction.CircularizeAtAP));
         }
 
-        // Camera buttons (focus / reset) — full-width stacked
-        var cameraButtonX = panelX + padding;
-        var cameraButtonY = panelY + panelHeight - padding - (cameraBtnHeight * 2f) - cameraBtnGap;
-        var fullButtonWidth = panelWidth - (padding * 2f);
+        if (selected is Ship selectedShip)
+        {
+            var transferBtnY = panelY
+                + padding
+                + lineHeight * (1 + statLines.Length)
+                + additionalCircularizeHeight
+                + padding / 2f;
 
-        DrawPanelButton(new RectangleF(cameraButtonX, cameraButtonY, fullButtonWidth, cameraBtnHeight),
-            "Focus Selected Orbit", new UIButtonResult(UIAction.CameraFocusSelected));
+            DrawPanelButton(
+                new RectangleF(panelX + padding, transferBtnY, panelWidth - (padding * 2f), btnHeight),
+                "Hohmann Transfer",
+                new UIButtonResult(UIAction.HohmannOpenDialog),
+                new Color(24, 72, 96));
+        }
 
-        DrawPanelButton(new RectangleF(cameraButtonX, cameraButtonY + cameraBtnHeight + cameraBtnGap, fullButtonWidth, cameraBtnHeight),
-            "Reset Camera View", new UIButtonResult(UIAction.CameraResetView));
+        if (showCameraButtons)
+        {
+            var cameraButtonX = panelX + padding;
+            var cameraButtonY = panelY + panelHeight - padding - cameraBtnHeight;
+            var fullButtonWidth = panelWidth - (padding * 2f);
+            var cameraToggleLabel = gameState.IsCameraFocusedOnSelected ? "Reset Camera View" : "Focus Selected Orbit";
+
+            DrawPanelButton(new RectangleF(cameraButtonX, cameraButtonY, fullButtonWidth, cameraBtnHeight),
+                cameraToggleLabel, new UIButtonResult(UIAction.CameraFocusSelected));
+        }
     }
 
     // ── Maneuver node panel (bottom-right) ────────────────────────────────
     private void DrawManeuverNodePanel(GameState gameState)
     {
+        if (gameState.IsHohmannTransferDialogOpen)
+            return;
+
         var ship = gameState.SelectedShip;
-        var node = ship?.ManeuverNode;
+        var node = ship?.NextManeuverNode ?? ship?.ManeuverNode;
         if (node is null) return;
 
         var orbit = ship.Orbit;
+        if (ship.NextManeuverNode is not null && ship.ManeuverNode is not null)
+        {
+            var predictedFirst = ship.ManeuverNode.GetPredictedOrbit(ship.Orbit);
+            if (predictedFirst is not null)
+                orbit = predictedFirst;
+        }
         var font = Fonts.DebugFont;
         const float padding = 14f;
         const float lineHeight = 20f;
@@ -300,15 +322,19 @@ public class UIRenderer
             : predicted.IsEscapeTrajectory ? "Escape"
             : FormatDistance(predicted.Apoapsis);
         var predPEText = predicted is null ? "N/A" : FormatDistance(predicted.Periapsis);
+        var nodeTotalDeltaV = Math.Sqrt(
+            (node.ProgradeDeltaV * node.ProgradeDeltaV)
+            + (node.NormalDeltaV * node.NormalDeltaV));
+        var nodeTotalDeltaVText = $"{nodeTotalDeltaV:0.0} m/s";
 
-        // title + 2*(value row + button row) + gap + 2*stat rows + gap + confirm row
+        // title + 2*(value row + button row) + gap + 3*stat rows + gap + confirm row
         const float confirmBtnH = 20f;
         const float confirmBtnW = 120f;
         var panelHeight = padding * 2f
             + lineHeight
             + (lineHeight + btnH + btnGap) * 2f
             + lineHeight / 2f
-            + lineHeight * 2f
+            + lineHeight * 3f
             + lineHeight / 2f
             + confirmBtnH;
 
@@ -320,7 +346,8 @@ public class UIRenderer
 
         float cy = panelY + padding;
 
-        SpriteBatch.DrawString(font, "MANEUVER NODE", new Vector2(panelX + padding, cy), Color.Gold);
+        var title = ship.NextManeuverNode is not null ? "MANEUVER NODE 2" : "MANEUVER NODE";
+        SpriteBatch.DrawString(font, title, new Vector2(panelX + padding, cy), Color.Gold);
         cy += lineHeight;
 
         // Local helper — captures panelX, panelWidth, padding, lineHeight, btnW, btnH, btnGap, cy
@@ -350,6 +377,12 @@ public class UIRenderer
         DrawDeltaVRow("Normal  ", node.NormalDeltaV,   UIAction.ManeuverNormalStep);
 
         cy += lineHeight / 2f;
+
+        SpriteBatch.DrawString(font, "Total dV:", new Vector2(panelX + padding, cy), Color.LightGray);
+        var totalDvSize = font.MeasureString(nodeTotalDeltaVText);
+        SpriteBatch.DrawString(font, nodeTotalDeltaVText,
+            new Vector2(panelX + panelWidth - padding - totalDvSize.X, cy), Color.White);
+        cy += lineHeight;
 
         SpriteBatch.DrawString(font, "Pred. AP:", new Vector2(panelX + padding, cy), Color.LightGray);
         var apSize = font.MeasureString(predAPText);
@@ -405,6 +438,193 @@ public class UIRenderer
             pressed ? Color.White * 0.85f : hovered ? Color.White : Color.LightGray);
 
         _buttons.Add((rect, result));
+    }
+
+    public void DrawHohmannTransferDialog(GameState gameState)
+    {
+        if (!gameState.IsHohmannTransferDialogOpen)
+            return;
+
+        var ship = gameState.SelectedShip;
+        if (ship is null)
+            return;
+
+        var font = Fonts.DebugFont;
+        const float padding = 14f;
+        const float lineHeight = 20f;
+        const float btnW = 42f;
+        const float btnH = 18f;
+        const float btnGap = 3f;
+        const float panelWidth = 340f;
+
+        var panelHeight = padding * 2f
+            + lineHeight
+            + lineHeight
+            + lineHeight
+            + btnH + btnGap
+            + lineHeight / 2f
+            + lineHeight * 3f
+            + lineHeight / 2f
+            + 20f;
+
+        var panelX = GraphicsDevice.Viewport.Width - panelWidth - padding;
+        var panelY = GraphicsDevice.Viewport.Height - panelHeight - padding;
+
+        // Draw panel background
+        SpriteBatch.FillRectangle(panelX, panelY, panelWidth, panelHeight, new Color(0, 0, 0, 180));
+        SpriteBatch.DrawRectangle(panelX, panelY, panelWidth, panelHeight, Color.Gray * 0.6f, 1f);
+
+        float cy = panelY + padding;
+        var isMouseSelecting = gameState.IsHohmannTransferMouseTargetSelectionActive;
+
+        // Title
+        SpriteBatch.DrawString(font, "HOHMANN TRANSFER", new Vector2(panelX + padding, cy), Color.Gold);
+        cy += lineHeight;
+
+        var modeText = isMouseSelecting ? "Move mouse over target orbit, then click to lock" : "Target locked - fine tune and Accept";
+        SpriteBatch.DrawString(font, modeText, new Vector2(panelX + padding, cy), isMouseSelecting ? Color.Orange : Color.LightGreen);
+        cy += lineHeight;
+
+        // Altitude display with single row of buttons
+        var altitudeKm = gameState.HohmannTransferTargetAltitudeMeters / 1000d;
+        var altitudeText = $"{altitudeKm:0} km";
+        SpriteBatch.DrawString(font, "Target Alt:", new Vector2(panelX + padding, cy), Color.LightGray);
+        var altSize = font.MeasureString(altitudeText);
+        SpriteBatch.DrawString(font, altitudeText,
+            new Vector2(panelX + panelWidth - padding - altSize.X, cy), Color.White);
+        cy += lineHeight;
+
+        if (isMouseSelecting)
+        {
+            SpriteBatch.DrawString(font, "10 km snapping active", new Vector2(panelX + padding, cy), Color.LightGray);
+            cy += btnH + btnGap;
+        }
+        else
+        {
+            // Altitude adjustment buttons in single row (km)
+            string[] stepLabels = { "-100", "-50", "-10", "+10", "+50", "+100" };
+            UIAction[] stepActions = {
+                UIAction.HohmannAltitude100Decrease,
+                UIAction.HohmannAltitude50Decrease,
+                UIAction.HohmannAltitude10Decrease,
+                UIAction.HohmannAltitude10Increase,
+                UIAction.HohmannAltitude50Increase,
+                UIAction.HohmannAltitude100Increase
+            };
+
+            float totalW = stepLabels.Length * btnW + (stepLabels.Length - 1) * btnGap;
+            float btnStartX = panelX + panelWidth / 2f - totalW / 2f;
+
+            for (int i = 0; i < stepLabels.Length; i++)
+            {
+                var rect = new RectangleF(btnStartX + i * (btnW + btnGap), cy, btnW, btnH);
+                DrawPanelButton(rect, stepLabels[i], new UIButtonResult(stepActions[i]));
+            }
+
+            cy += btnH + btnGap;
+        }
+
+        // Transfer delta-v info
+        var firstNode = ship.ManeuverNode;
+        var secondNode = ship.NextManeuverNode;
+        var firstNodeDeltaV = 0d;
+        var secondNodeDeltaV = 0d;
+        var transferTotalDeltaV = 0d;
+        if (firstNode is not null)
+        {
+            firstNodeDeltaV = Math.Sqrt(
+                (firstNode.ProgradeDeltaV * firstNode.ProgradeDeltaV)
+                + (firstNode.NormalDeltaV * firstNode.NormalDeltaV));
+            transferTotalDeltaV += firstNodeDeltaV;
+        }
+        if (secondNode is not null)
+        {
+            secondNodeDeltaV = Math.Sqrt(
+                (secondNode.ProgradeDeltaV * secondNode.ProgradeDeltaV)
+                + (secondNode.NormalDeltaV * secondNode.NormalDeltaV));
+            transferTotalDeltaV += secondNodeDeltaV;
+        }
+        var firstNodeDeltaVText = firstNode is null ? "N/A" : $"{firstNodeDeltaV:0.0} m/s";
+        var secondNodeDeltaVText = secondNode is null ? "N/A" : $"{secondNodeDeltaV:0.0} m/s";
+        var transferTotalDeltaVText = (firstNode is null && secondNode is null) ? "N/A" : $"{transferTotalDeltaV:0.0} m/s";
+
+        cy += lineHeight / 2f;
+
+        SpriteBatch.DrawString(font, "Burn 1 dV:", new Vector2(panelX + padding, cy), Color.LightGray);
+        var firstDvSize = font.MeasureString(firstNodeDeltaVText);
+        SpriteBatch.DrawString(font, firstNodeDeltaVText,
+            new Vector2(panelX + panelWidth - padding - firstDvSize.X, cy), Color.White);
+        cy += lineHeight;
+
+        SpriteBatch.DrawString(font, "Burn 2 dV:", new Vector2(panelX + padding, cy), Color.LightGray);
+        var secondDvSize = font.MeasureString(secondNodeDeltaVText);
+        SpriteBatch.DrawString(font, secondNodeDeltaVText,
+            new Vector2(panelX + panelWidth - padding - secondDvSize.X, cy), Color.White);
+        cy += lineHeight;
+
+        SpriteBatch.DrawString(font, "Total dV:", new Vector2(panelX + padding, cy), Color.LightGray);
+        var totalDvSize = font.MeasureString(transferTotalDeltaVText);
+        SpriteBatch.DrawString(font, transferTotalDeltaVText,
+            new Vector2(panelX + panelWidth - padding - totalDvSize.X, cy), Color.White);
+        cy += lineHeight + lineHeight / 2f;
+
+        // Accept / Cancel
+        const float confirmBtnW = 120f;
+        const float confirmBtnH = 20f;
+        float totalConfirmW = confirmBtnW * 2f + btnGap * 3f;
+        float confirmStartX = panelX + (panelWidth - totalConfirmW) / 2f;
+        if (isMouseSelecting)
+        {
+            var acceptRect = new RectangleF(confirmStartX, cy, confirmBtnW, confirmBtnH);
+            SpriteBatch.FillRectangle(acceptRect, new Color(45, 45, 45, 220));
+            SpriteBatch.DrawRectangle(acceptRect, Color.Gray * 0.8f, 1f);
+            var disabledText = "Accept";
+            var disabledSize = font.MeasureString(disabledText);
+            SpriteBatch.DrawString(font, disabledText,
+                new Vector2(acceptRect.X + (acceptRect.Width - disabledSize.X) / 2f,
+                            acceptRect.Y + (acceptRect.Height - disabledSize.Y) / 2f),
+                Color.Gray);
+        }
+        else
+        {
+            DrawPanelButton(
+                new RectangleF(confirmStartX, cy, confirmBtnW, confirmBtnH),
+                "Accept",
+                new UIButtonResult(UIAction.HohmannConfirm),
+                new Color(30, 80, 30));
+        }
+        DrawPanelButton(
+            new RectangleF(confirmStartX + confirmBtnW + btnGap * 3f, cy, confirmBtnW, confirmBtnH),
+            "Cancel",
+            new UIButtonResult(UIAction.HohmannCancel),
+            new Color(80, 30, 30));
+    }
+
+    private void DrawHohmannMouseAltitudeLabel(GameState gameState)
+    {
+        if (!gameState.IsHohmannTransferDialogOpen || !gameState.IsHohmannTransferMouseTargetSelectionActive)
+            return;
+
+        if (gameState.SelectedShip is null)
+            return;
+
+        var font = Fonts.DebugFont;
+        var altitudeKm = gameState.HohmannTransferTargetAltitudeMeters / 1000d;
+        var label = $"{altitudeKm:0} km";
+        var textSize = font.MeasureString(label);
+
+        const float margin = 6f;
+        var pos = _mousePos + new Vector2(16f, -8f - textSize.Y);
+
+        var maxX = GraphicsDevice.Viewport.Width - textSize.X - (margin * 2f);
+        var maxY = GraphicsDevice.Viewport.Height - textSize.Y - (margin * 2f);
+        pos.X = Math.Clamp(pos.X, margin, Math.Max(margin, maxX));
+        pos.Y = Math.Clamp(pos.Y, margin, Math.Max(margin, maxY));
+
+        var bg = new RectangleF(pos.X - margin, pos.Y - margin, textSize.X + margin * 2f, textSize.Y + margin * 2f);
+        SpriteBatch.FillRectangle(bg, new Color(0, 0, 0, 200));
+        SpriteBatch.DrawRectangle(bg, Color.Gray * 0.8f, 1f);
+        SpriteBatch.DrawString(font, label, pos, Color.Gold);
     }
 
     private static string FormatDistance(double meters)

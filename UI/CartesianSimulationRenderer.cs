@@ -54,12 +54,19 @@ public class CartesianSimulationRenderer : SimulationRendererBase
         {
             foreach (var ship in gameState.Ships)
             {
-                var node = ship.ManeuverNode;
-                if (node is null || !node.IsConfirmed) continue;
+                var firstNode = ship.ManeuverNode;
+                if (firstNode is null || !firstNode.IsConfirmed) continue;
                 try
                 {
                     DrawOrbit(ship.Orbit, orbitDefaultColor);
-                    DrawManueverNode(ship, drawButtons: false);
+                    DrawManueverNode(firstNode, ship.Orbit, drawButtons: false);
+
+                    var secondNode = ship.NextManeuverNode;
+                    var secondBaseOrbit = firstNode.GetPredictedOrbit(ship.Orbit);
+                    if (secondNode is not null && secondBaseOrbit is not null)
+                    {
+                        DrawManueverNode(secondNode, secondBaseOrbit, drawButtons: false);
+                    }
                 }
                 catch
                 {
@@ -68,7 +75,7 @@ public class CartesianSimulationRenderer : SimulationRendererBase
         }
 
         DrawStations(gameState.Stations, gameState.SelectedShip);
-        DrawShips(gameState.Ships);
+        DrawShips(gameState.Ships, gameState);
 
         var selectedShip = gameState.SelectedShip;
         var target = gameState.TargetOrbitingObject;
@@ -78,20 +85,12 @@ public class CartesianSimulationRenderer : SimulationRendererBase
             DrawOrbit(targetOrbit, TargetOrbitColor);
             DrawApsisMarkers(targetOrbit, TargetApsisColor);
 
-            Orbit shipOrbitForApproach = selectedShip.Orbit;
-            if (selectedShip.ManeuverNode is not null)
-            {
-                var predicted = selectedShip.ManeuverNode.GetPredictedOrbit(selectedShip.Orbit);
-                if (predicted is not null)
-                    shipOrbitForApproach = predicted;
-            }
+            Orbit shipOrbitForApproach = GetOrbitAfterPlannedManeuvers(selectedShip);
 
             Orbit targetOrbitForApproach = targetOrbit;
-            if (target is Ship targetShip && targetShip.ManeuverNode is not null)
+            if (target is Ship targetShip)
             {
-                var predictedT = targetShip.ManeuverNode.GetPredictedOrbit(targetShip.Orbit);
-                if (predictedT is not null)
-                    targetOrbitForApproach = predictedT;
+                targetOrbitForApproach = GetOrbitAfterPlannedManeuvers(targetShip);
             }
 
             DrawClosestApproach(shipOrbitForApproach, targetOrbitForApproach, selectedShip, target);
@@ -156,7 +155,7 @@ public class CartesianSimulationRenderer : SimulationRendererBase
         }
     }
 
-    private void DrawShips(List<Ship> ships)
+    private void DrawShips(List<Ship> ships, GameState gameState)
     {
         const float size = 5f;
         foreach (var ship in ships)
@@ -167,10 +166,27 @@ public class CartesianSimulationRenderer : SimulationRendererBase
             {
                 DrawOrbit(ship.Orbit, SelectedOrbitColor);
                 DrawApsisMarkers(ship.Orbit, SelectedOrbitColor);
+
                 if (ship.ManeuverNode is null)
+                {
                     DrawOrbitMouseIntersection(ship.Orbit);
-                if (ship.ManeuverNode is not null)
-                    DrawManueverNode(ship);
+                }
+                else
+                {
+                    var firstNode = ship.ManeuverNode;
+                    DrawManueverNode(firstNode, ship.Orbit, drawButtons: ship.NextManeuverNode is null);
+
+                    var secondBaseOrbit = firstNode.GetPredictedOrbit(ship.Orbit);
+                    if (ship.NextManeuverNode is null && firstNode.IsConfirmed && secondBaseOrbit is not null)
+                    {
+                        DrawOrbitMouseIntersection(secondBaseOrbit);
+                    }
+
+                    if (ship.NextManeuverNode is not null && secondBaseOrbit is not null)
+                    {
+                        DrawManueverNode(ship.NextManeuverNode, secondBaseOrbit, drawButtons: true);
+                    }
+                }
 
                 var destinationOrbit = GetDestinationOrbit(ship);
                 if (destinationOrbit is not null)
@@ -178,13 +194,7 @@ public class CartesianSimulationRenderer : SimulationRendererBase
                     DrawOrbit(destinationOrbit, TargetOrbitColor);
                     DrawApsisMarkers(destinationOrbit, TargetApsisColor);
 
-                    var orbitForApproach = ship.Orbit;
-                    if (ship.ManeuverNode is not null)
-                    {
-                        var predicted = ship.ManeuverNode.GetPredictedOrbit(ship.Orbit);
-                        if (predicted is not null)
-                            orbitForApproach = predicted;
-                    }
+                    var orbitForApproach = GetOrbitAfterPlannedManeuvers(ship);
 
                     DrawClosestApproach(orbitForApproach, destinationOrbit);
                 }
@@ -711,26 +721,23 @@ public class CartesianSimulationRenderer : SimulationRendererBase
         }
     }
 
-    private void DrawManueverNode(Ship ship, bool drawButtons = true)
+    private void DrawManueverNode(ManeuverNode manueverNode, Orbit baseOrbit, bool drawButtons = true)
     {
-        var manueverNode = ship.ManeuverNode;
-        if (manueverNode is null)
-            return;
-
-        var predictedOrbit = manueverNode.GetPredictedOrbit(ship.Orbit);
+        var predictedOrbit = manueverNode.GetPredictedOrbit(baseOrbit);
         if (predictedOrbit is not null)
         {
             var predictedColor = manueverNode.IsConfirmed ? Color.LightGreen : Color.Yellow;
             DrawOrbit(predictedOrbit, predictedColor);
         }
 
-        var nodePos = ProjectPosition(ship.Orbit.GetPositionAtAngleD(manueverNode.TrueAnomaly));
+        var nodePos = ProjectPosition(baseOrbit.GetPositionAtAngleD(manueverNode.TrueAnomaly));
         manueverNode.ScreenPosition = nodePos.ToNumerics();
 
         var nodeRadius = UIConstants.NodeRadius;
         var nodeColor = manueverNode.IsConfirmed ? Color.LightGreen : Color.Yellow;
         var nodeThickness = UIConstants.NodeThickness;
         SpriteBatch.DrawCircle(new CircleF() { Center = nodePos, Radius = nodeRadius }, 16, nodeColor, nodeThickness);
+        DrawManeuverDeltaVLabel(manueverNode, nodePos, nodeColor);
 
         if (!drawButtons)
             return;
@@ -746,8 +753,8 @@ public class CartesianSimulationRenderer : SimulationRendererBase
             manueverNode.ButtonThickness = UIConstants.NodeButtonThickness;
 
             const double tangentSample = 0.01d;
-            var prevPos = ProjectPosition(ship.Orbit.GetPositionAtAngleD(manueverNode.TrueAnomaly - tangentSample));
-            var nextPos = ProjectPosition(ship.Orbit.GetPositionAtAngleD(manueverNode.TrueAnomaly + tangentSample));
+            var prevPos = ProjectPosition(baseOrbit.GetPositionAtAngleD(manueverNode.TrueAnomaly - tangentSample));
+            var nextPos = ProjectPosition(baseOrbit.GetPositionAtAngleD(manueverNode.TrueAnomaly + tangentSample));
             var tangent2D = nextPos - prevPos;
             if (tangent2D.LengthSquared() < 1e-6f)
                 tangent2D = new Vector2(1f, 0f);
@@ -767,6 +774,48 @@ public class CartesianSimulationRenderer : SimulationRendererBase
             if (manueverNode.DragType is ManeuverDragType.None)
                 DrawButton(manueverNode.CancelButton, mousePos);
         }
+    }
+
+    private void DrawManeuverDeltaVLabel(ManeuverNode manueverNode, Vector2 nodePos, Color color)
+    {
+        var totalDeltaV = Math.Sqrt(
+            (manueverNode.ProgradeDeltaV * manueverNode.ProgradeDeltaV)
+            + (manueverNode.NormalDeltaV * manueverNode.NormalDeltaV));
+
+        if (!double.IsFinite(totalDeltaV))
+            return;
+
+        var label = $"dV {totalDeltaV:0.0} m/s";
+        var labelPos = nodePos + new Vector2(10f, -18f);
+
+        SpriteBatch.DrawString(Fonts.DebugFont, label, labelPos + new Vector2(-1f, 0f), Color.Black);
+        SpriteBatch.DrawString(Fonts.DebugFont, label, labelPos + new Vector2(1f, 0f), Color.Black);
+        SpriteBatch.DrawString(Fonts.DebugFont, label, labelPos + new Vector2(0f, -1f), Color.Black);
+        SpriteBatch.DrawString(Fonts.DebugFont, label, labelPos + new Vector2(0f, 1f), Color.Black);
+        SpriteBatch.DrawString(Fonts.DebugFont, label, labelPos, color);
+    }
+
+    private static Orbit GetOrbitAfterPlannedManeuvers(Ship ship)
+    {
+        var orbit = ship.Orbit;
+
+        var firstNode = ship.ManeuverNode;
+        if (firstNode is not null)
+        {
+            var predictedFirst = firstNode.GetPredictedOrbit(orbit);
+            if (predictedFirst is not null)
+                orbit = predictedFirst;
+        }
+
+        var secondNode = ship.NextManeuverNode;
+        if (secondNode is not null)
+        {
+            var predictedSecond = secondNode.GetPredictedOrbit(orbit);
+            if (predictedSecond is not null)
+                orbit = predictedSecond;
+        }
+
+        return orbit;
     }
 
     private void DrawButton(Button button, Vector2 mousePos)
