@@ -17,6 +17,11 @@ public sealed class ExitControlAreaDestination : ShipDestination
             return false;
         }
 
+        if (!ship.Orbit.IsEscapeTrajectory)
+        {
+            return false;
+        }
+
         var controlRadius = Core.GameState.CentralBody.ControlRadius;
         return ship.PositionD.Length() >= controlRadius;
     }

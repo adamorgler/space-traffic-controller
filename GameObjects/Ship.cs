@@ -47,7 +47,10 @@ public class Ship : HasOrbit
         {
             var remainingTimeAfterBurn = Math.Max(0d, gameTime - timeToNodeFromFrameStart);
             Orbit = predictedOrbit;
-            if (remainingTimeAfterBurn > 0d)
+            // For newly-created escape trajectories, do not advance the remaining frame time.
+            // At high warp this can otherwise jump straight past the control boundary and look
+            // like the ship disappears immediately when the node executes.
+            if (remainingTimeAfterBurn > 0d && !Orbit.IsEscapeTrajectory)
             {
                 Orbit.Update(remainingTimeAfterBurn);
             }

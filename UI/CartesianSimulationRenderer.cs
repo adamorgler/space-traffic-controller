@@ -29,6 +29,7 @@ public class CartesianSimulationRenderer : SimulationRendererBase
         MouseState = Mouse.GetState();
         _projectedPanX = gameState.ProjectedPanX;
         var body = GameState.CentralBody;
+        var station = gameState.Stations.FirstOrDefault();
 
         DrawBackground(body);
         DrawBodyAndReferenceLines(body);
@@ -78,13 +79,39 @@ public class CartesianSimulationRenderer : SimulationRendererBase
         DrawShips(gameState.Ships, gameState);
 
         var hoveredShip = GetHoveredShip(gameState.Ships);
+        var selectedShip = gameState.SelectedShip;
+        var target = gameState.TargetOrbitingObject;
+        var relativeReference = target ?? station;
+
+        if (relativeReference is not null)
+        {
+            if (selectedShip is not null)
+            {
+                DrawRelativePath(selectedShip, relativeReference, SelectedOrbitColor * 0.85f);
+            }
+
+            if (hoveredShip is not null && hoveredShip != selectedShip)
+            {
+                DrawRelativePath(hoveredShip, relativeReference, HoverOrbitColor * 0.9f);
+            }
+
+            if (target is not null && target != selectedShip && target != hoveredShip)
+            {
+                DrawRelativePath(target, relativeReference, TargetOrbitColor * 0.9f);
+            }
+
+            var conflictSubject = selectedShip ?? hoveredShip;
+            if (conflictSubject is not null && target is Ship targetShip && conflictSubject != targetShip)
+            {
+                DrawPotentialRelativeConflicts(conflictSubject, targetShip, relativeReference);
+            }
+        }
+
         if (hoveredShip is not null && !hoveredShip.IsSelected)
         {
             DrawHoveredShipPreview(hoveredShip);
         }
 
-        var selectedShip = gameState.SelectedShip;
-        var target = gameState.TargetOrbitingObject;
         if (selectedShip is not null && target is not null)
         {
             var targetOrbit = target.Orbit;
@@ -319,6 +346,497 @@ public class CartesianSimulationRenderer : SimulationRendererBase
         }
 
         return hovered;
+    }
+
+    private void DrawRelativePath(HasOrbit subject, HasOrbit reference, Color color)
+    {
+        if (subject is null || reference is null)
+        {
+            return;
+        }
+
+        var subjectOrbit = subject.Orbit;
+        var referenceOrbit = reference.Orbit;
+        if (subjectOrbit is null || referenceOrbit is null)
+        {
+            return;
+        }
+
+        var currentReferencePosition = reference.Orbit.PositionVectorD;
+        if (currentReferencePosition.Length() <= 0d)
+        {
+            return;
+        }
+
+        var durationSeconds = GetSingleOrbitDurationSeconds(subjectOrbit, referenceOrbit);
+        const int samples = 240;
+        var subjectPlan = BuildTrajectoryPlan(subject, durationSeconds);
+        var referencePlan = BuildTrajectoryPlan(reference, durationSeconds);
+
+        var subjectPositions = SamplePlanPositions(subjectPlan, samples, durationSeconds);
+        var referencePositions = SamplePlanPositions(referencePlan, samples, durationSeconds);
+        if (subjectPositions.Count != referencePositions.Count || subjectPositions.Count == 0)
+        {
+            return;
+        }
+
+        var currentReferenceAngle = Math.Atan2(currentReferencePosition.Y, currentReferencePosition.X);
+        var points = new List<Vector2>(subjectPositions.Count);
+        var controlRadius = GameState.CentralBody.ControlRadius;
+        for (int i = 0; i < subjectPositions.Count; i++)
+        {
+            var subjectPosition = subjectPositions[i];
+            var referencePosition = referencePositions[i];
+
+            if (subjectPosition.Length() > 0d && referencePosition.Length() > 0d)
+            {
+                var subjectRadius = subjectPosition.Length();
+                if (!double.IsFinite(subjectRadius) || subjectRadius <= 0d)
+                {
+                    continue;
+                }
+
+                if (subjectRadius >= controlRadius)
+                {
+                    // Cap path at the control boundary for projected view readability.
+                    // Escape trajectories continue beyond view, so extending samples can
+                    // create misleading corner streaks.
+                    var boundaryPoint = DVector2.Normalize(subjectPosition) * controlRadius;
+                    points.Add(ToRelativeProjectedScreen(boundaryPoint, referencePosition, currentReferenceAngle));
+                    break;
+                }
+
+                points.Add(ToRelativeProjectedScreen(subjectPosition, referencePosition, currentReferenceAngle));
+            }
+        }
+
+        if (points.Count < 2)
+        {
+            return;
+        }
+
+        var transitionIndices = new List<int>();
+        if (points.Count > 2)
+        {
+            var maxPointIndex = points.Count - 1;
+            for (int i = 0; i < subjectPlan.TransitionTimes.Count; i++)
+            {
+                var idx = (int)Math.Round((subjectPlan.TransitionTimes[i] / durationSeconds) * maxPointIndex);
+                idx = Math.Clamp(idx, 1, maxPointIndex - 1);
+                if (!transitionIndices.Contains(idx))
+                {
+                    transitionIndices.Add(idx);
+                }
+            }
+        }
+
+        transitionIndices.Sort();
+
+        var startIdx = 0;
+        var segmentNumber = 0;
+        for (int t = 0; t <= transitionIndices.Count; t++)
+        {
+            var endIdx = t < transitionIndices.Count ? transitionIndices[t] : points.Count - 1;
+            if (endIdx - startIdx >= 1)
+            {
+                var segmentPoints = points.GetRange(startIdx, endIdx - startIdx + 1);
+                var segmentColor = segmentNumber == 0
+                    ? color
+                    : Color.Lerp(color, Color.White, Math.Min(0.35f, 0.15f * segmentNumber));
+
+                DrawWrappedDashedPolyline(segmentPoints, segmentColor, 1f, dashLength: 7d, gapLength: 5d);
+                segmentNumber++;
+            }
+
+            if (t < transitionIndices.Count)
+            {
+                var transitionPoint = points[transitionIndices[t]];
+                SpriteBatch.DrawCircle(new CircleF() { Center = transitionPoint, Radius = 3f }, 14, ManeuverIndicatorPendingColor, 1f);
+            }
+
+            startIdx = endIdx;
+        }
+
+        DrawRelativePathIntervalMarkers(points, color);
+    }
+
+    private void DrawRelativePathIntervalMarkers(IReadOnlyList<Vector2> points, Color baseColor)
+    {
+        if (points is null || points.Count < 2)
+        {
+            return;
+        }
+
+        var width = GraphicsDevice.Viewport.Width;
+        if (width <= 0)
+        {
+            return;
+        }
+
+        var unwrapped = new List<Vector2>(points.Count) { points[0] };
+        for (int i = 1; i < points.Count; i++)
+        {
+            var prev = unwrapped[i - 1];
+            var curr = points[i];
+            var x = curr.X;
+
+            while ((x - prev.X) > (width * 0.5f)) x -= width;
+            while ((x - prev.X) < -(width * 0.5f)) x += width;
+
+            unwrapped.Add(new Vector2(x, curr.Y));
+        }
+
+        if (unwrapped.Count >= 3)
+        {
+            var quarterFractions = new[] { 0.25f, 0.5f, 0.75f };
+            foreach (var frac in quarterFractions)
+            {
+                var idx = (int)Math.Round(frac * (unwrapped.Count - 1));
+                idx = Math.Clamp(idx, 1, unwrapped.Count - 2);
+                DrawPerpendicularMarkerAt(unwrapped, idx, markerHalfLength: 4f, baseColor * 0.85f, thickness: 1f);
+            }
+        }
+
+        // One full orbit marker at the path end, slightly longer.
+        DrawPerpendicularMarkerAt(unwrapped, unwrapped.Count - 1, markerHalfLength: 6f, baseColor, thickness: 1.25f);
+    }
+
+    private void DrawPerpendicularMarkerAt(IReadOnlyList<Vector2> unwrappedPoints, int index, float markerHalfLength, Color color, float thickness)
+    {
+        if (unwrappedPoints.Count < 2)
+        {
+            return;
+        }
+
+        var idx = Math.Clamp(index, 0, unwrappedPoints.Count - 1);
+        var prevIdx = Math.Max(0, idx - 1);
+        var nextIdx = Math.Min(unwrappedPoints.Count - 1, idx + 1);
+
+        var center = unwrappedPoints[idx];
+        var tangent = unwrappedPoints[nextIdx] - unwrappedPoints[prevIdx];
+        if (tangent.LengthSquared() <= 1e-6f)
+        {
+            return;
+        }
+
+        tangent.Normalize();
+        var normal = new Vector2(-tangent.Y, tangent.X);
+        var start = center - (normal * markerHalfLength);
+        var end = center + (normal * markerHalfLength);
+
+        var width = GraphicsDevice.Viewport.Width;
+        for (int k = -1; k <= 1; k++)
+        {
+            var shift = new Vector2(k * width, 0f);
+            SpriteBatch.DrawLine(start + shift, end + shift, color, thickness);
+        }
+    }
+
+    private void DrawPotentialRelativeConflicts(Ship shipA, Ship shipB, HasOrbit reference)
+    {
+        if (shipA is null || shipB is null || reference is null)
+        {
+            return;
+        }
+
+        var referencePosition = reference.Orbit.PositionVectorD;
+        if (referencePosition.Length() <= 0d)
+        {
+            return;
+        }
+
+        var durationSeconds = Math.Max(
+            GetSingleOrbitDurationSeconds(shipA.Orbit, reference.Orbit),
+            GetSingleOrbitDurationSeconds(shipB.Orbit, reference.Orbit));
+        const int samples = 300;
+
+        var planA = BuildTrajectoryPlan(shipA, durationSeconds);
+        var planB = BuildTrajectoryPlan(shipB, durationSeconds);
+        var planReference = BuildTrajectoryPlan(reference, durationSeconds);
+
+        var positionsA = SamplePlanPositions(planA, samples, durationSeconds);
+        var positionsB = SamplePlanPositions(planB, samples, durationSeconds);
+        var referencePositions = SamplePlanPositions(planReference, samples, durationSeconds);
+        if (positionsA.Count != positionsB.Count || positionsA.Count != referencePositions.Count || positionsA.Count == 0)
+        {
+            return;
+        }
+
+        var thresholdMeters = GameConstants.ShipSepration;
+        var conflictIndices = new List<int>();
+        var inConflict = false;
+        var conflictStart = 0;
+
+        for (int i = 0; i < positionsA.Count; i++)
+        {
+            var delta = positionsA[i] - positionsB[i];
+            var distance = delta.Length();
+            var isConflict = distance <= thresholdMeters;
+
+            if (isConflict && !inConflict)
+            {
+                inConflict = true;
+                conflictStart = i;
+            }
+            else if (!isConflict && inConflict)
+            {
+                inConflict = false;
+                conflictIndices.Add((conflictStart + i - 1) / 2);
+            }
+        }
+
+        if (inConflict)
+        {
+            conflictIndices.Add((conflictStart + positionsA.Count - 1) / 2);
+        }
+
+        if (conflictIndices.Count == 0)
+        {
+            return;
+        }
+
+        var currentReferenceAngle = Math.Atan2(referencePosition.Y, referencePosition.X);
+        var markersToDraw = Math.Min(6, conflictIndices.Count);
+        for (int i = 0; i < markersToDraw; i++)
+        {
+            var idx = conflictIndices[i];
+            var markerA = ToRelativeProjectedScreen(positionsA[idx], referencePositions[idx], currentReferenceAngle);
+            var markerB = ToRelativeProjectedScreen(positionsB[idx], referencePositions[idx], currentReferenceAngle);
+
+            DrawDashedLine(markerA, markerB, EncroachedSeparationColor * 0.9f, 1.1f, 5f, 3f);
+            SpriteBatch.DrawCircle(new CircleF() { Center = markerA, Radius = 4f }, 14, EncroachedSeparationColor, 1.4f);
+            SpriteBatch.DrawCircle(new CircleF() { Center = markerB, Radius = 4f }, 14, EncroachedSeparationColor, 1.4f);
+        }
+    }
+
+    private static TrajectoryPlan BuildTrajectoryPlan(HasOrbit orbitingObject, double totalDurationSeconds)
+    {
+        var plan = new TrajectoryPlan();
+        if (orbitingObject?.Orbit is null || totalDurationSeconds <= 0d)
+        {
+            return plan;
+        }
+
+        if (orbitingObject is not Ship ship)
+        {
+            plan.Segments.Add(new TrajectorySegment(CloneOrbitForSampling(orbitingObject.Orbit), totalDurationSeconds));
+            return plan;
+        }
+
+        var currentOrbit = CloneOrbitForSampling(ship.Orbit);
+        if (currentOrbit is null)
+        {
+            return plan;
+        }
+
+        var remaining = totalDurationSeconds;
+        var elapsed = 0d;
+        var nodes = new List<ManeuverNode>();
+        if (ship.ManeuverNode is not null)
+        {
+            nodes.Add(ship.ManeuverNode);
+        }
+
+        if (ship.NextManeuverNode is not null)
+        {
+            nodes.Add(ship.NextManeuverNode);
+        }
+
+        var hasPredictedSegment = false;
+        foreach (var node in nodes)
+        {
+            if (remaining <= 0d)
+            {
+                break;
+            }
+
+            var timeToNode = currentOrbit.TimeToTrueAomaly(node.TrueAnomaly);
+            var canReachNode = double.IsFinite(timeToNode) && !double.IsNaN(timeToNode) && timeToNode > 0d;
+
+            if (!canReachNode || timeToNode >= remaining)
+            {
+                plan.Segments.Add(new TrajectorySegment(currentOrbit, remaining, hasPredictedSegment));
+                remaining = 0d;
+                break;
+            }
+
+            plan.Segments.Add(new TrajectorySegment(currentOrbit, timeToNode, hasPredictedSegment));
+            remaining -= timeToNode;
+            elapsed += timeToNode;
+
+            var predictedOrbit = node.GetPredictedOrbit(currentOrbit);
+            if (predictedOrbit is null)
+            {
+                break;
+            }
+
+            plan.TransitionTimes.Add(elapsed);
+            currentOrbit = CloneOrbitForSampling(predictedOrbit);
+            hasPredictedSegment = true;
+        }
+
+        if (remaining > 0d)
+        {
+            plan.Segments.Add(new TrajectorySegment(currentOrbit, remaining, hasPredictedSegment));
+        }
+
+        return plan;
+    }
+
+    private static List<DVector2> SamplePlanPositions(TrajectoryPlan plan, int samples, double totalDurationSeconds)
+    {
+        var points = new List<DVector2>();
+        if (plan.Segments.Count == 0 || samples <= 0 || totalDurationSeconds <= 0d)
+        {
+            return points;
+        }
+
+        var dt = totalDurationSeconds / samples;
+        var segIdx = 0;
+        var segElapsed = 0d;
+
+        for (int i = 0; i <= samples; i++)
+        {
+            var seg = plan.Segments[Math.Clamp(segIdx, 0, plan.Segments.Count - 1)];
+            points.Add(seg.Orbit.PositionVectorD);
+
+            if (i == samples)
+            {
+                break;
+            }
+
+            var remainingStep = dt;
+            while (remainingStep > 0d && segIdx < plan.Segments.Count)
+            {
+                seg = plan.Segments[segIdx];
+                var segRemaining = Math.Max(0d, seg.DurationSeconds - segElapsed);
+                if (segRemaining <= 1e-9d)
+                {
+                    if (segIdx >= plan.Segments.Count - 1)
+                    {
+                        break;
+                    }
+
+                    segIdx++;
+                    segElapsed = 0d;
+                    continue;
+                }
+
+                var step = Math.Min(remainingStep, segRemaining);
+                seg.Orbit.Update(step);
+                segElapsed += step;
+                remainingStep -= step;
+
+                if (segElapsed >= seg.DurationSeconds - 1e-9d && segIdx < plan.Segments.Count - 1)
+                {
+                    segIdx++;
+                    segElapsed = 0d;
+                }
+            }
+        }
+
+        return points;
+    }
+
+    private Vector2 ToRelativeProjectedScreen(DVector2 subjectPosition, DVector2 referencePosition, double currentReferenceAngle)
+    {
+        var subjectAngle = Math.Atan2(subjectPosition.Y, subjectPosition.X);
+        var referenceAngle = Math.Atan2(referencePosition.Y, referencePosition.X);
+        var relativeAngle = WrapAngleRadians(subjectAngle - referenceAngle);
+        var displayAngle = currentReferenceAngle + relativeAngle;
+
+        var subjectAltitude = Math.Max(0d, subjectPosition.Length() - GameState.CentralBody.Radius);
+        return new Vector2(
+            ProjectAngleToX(displayAngle),
+            ProjectAltitudeToY(subjectAltitude));
+    }
+
+    private sealed class TrajectoryPlan
+    {
+        public List<TrajectorySegment> Segments { get; } = new();
+        public List<double> TransitionTimes { get; } = new();
+    }
+
+    private sealed class TrajectorySegment
+    {
+        public Orbit Orbit { get; }
+        public double DurationSeconds { get; }
+        public bool IsPredicted { get; }
+
+        public TrajectorySegment(Orbit orbit, double durationSeconds, bool isPredicted = false)
+        {
+            Orbit = orbit;
+            DurationSeconds = Math.Max(0d, durationSeconds);
+            IsPredicted = isPredicted;
+        }
+    }
+
+    private static Orbit CloneOrbitForSampling(Orbit orbit)
+    {
+        if (orbit is null)
+        {
+            return null;
+        }
+
+        return new Orbit(
+            orbit.Apoapsis,
+            orbit.Periapsis,
+            orbit.ArgumentOfPeriapsis,
+            orbit.TrueAnomaly,
+            orbit.ExplicitEccentricity)
+        {
+            PreviousTrueAnomaly = orbit.PreviousTrueAnomaly,
+        };
+    }
+
+    private static double GetSingleOrbitDurationSeconds(Orbit shipOrbit, Orbit stationOrbit)
+    {
+        var mu = PhysicalConstants.G * GameState.CentralBody.Mass;
+        if (mu <= 0d)
+        {
+            return 7_200d;
+        }
+
+        double GetPeriodSeconds(Orbit orbit)
+        {
+            if (orbit.IsEscapeTrajectory)
+            {
+                return 0d;
+            }
+
+            var semiMajorAxis = (orbit.Apogee + orbit.Perigee) / 2d;
+            if (!double.IsFinite(semiMajorAxis) || semiMajorAxis <= 0d)
+            {
+                return 0d;
+            }
+
+            return MathHelper.TwoPi * Math.Sqrt((semiMajorAxis * semiMajorAxis * semiMajorAxis) / mu);
+        }
+
+        var shipPeriod = GetPeriodSeconds(shipOrbit);
+        if (double.IsFinite(shipPeriod) && shipPeriod > 0d)
+        {
+            return Math.Clamp(shipPeriod, 3_600d, 28_800d);
+        }
+
+        var stationPeriod = GetPeriodSeconds(stationOrbit);
+        if (double.IsFinite(stationPeriod) && stationPeriod > 0d)
+        {
+            return Math.Clamp(stationPeriod, 3_600d, 28_800d);
+        }
+
+        return 7_200d;
+    }
+
+    private static double WrapAngleRadians(double angle)
+    {
+        var wrapped = (angle + Math.PI) % (Math.PI * 2d);
+        if (wrapped < 0d)
+        {
+            wrapped += Math.PI * 2d;
+        }
+
+        return wrapped - Math.PI;
     }
 
     private void DrawHoveredShipPreview(Ship ship)

@@ -60,17 +60,31 @@ public static class OrbitUtils
         // Use atan2(sinν, cosν) for robust quadrant handling. The old acos-only approach
         // could misidentify ν when radial velocity was ~0 (common near circular burns),
         // causing apparent position jumps at maneuver execution.
-        double trueAnomaly;
+        double rawTrueAnomaly;
         if (e <= 1e-9)
         {
             // Circular case: periapsis direction is undefined, so preserve actual inertial angle.
-            trueAnomaly = NormalizeAngle0ToTwoPi(Math.Atan2(pos.Y, pos.X));
+            rawTrueAnomaly = Math.Atan2(pos.Y, pos.X);
         }
         else
         {
             var cosTheta = (DVector2.Dot(eVec, pos) / (e * r)).Clamp(-1d, 1d);
             var sinTheta = ((eVec.X * pos.Y) - (eVec.Y * pos.X)) / (e * r);
-            trueAnomaly = NormalizeAngle0ToTwoPi(Math.Atan2(sinTheta, cosTheta));
+            rawTrueAnomaly = Math.Atan2(sinTheta, cosTheta);
+        }
+
+        double trueAnomaly;
+        if (e > 1d)
+        {
+            // Hyperbolic trajectories use a signed true anomaly around periapsis.
+            // Wrapping into [0, 2π) can place the state beyond the valid branch range,
+            // which makes freshly-created escape burns jump straight to the asymptote.
+            var limit = Math.Acos(-1d / e) - 1e-6d;
+            trueAnomaly = Math.Clamp(NormalizeAngleSignedMinusPiToPi(rawTrueAnomaly), -limit, limit);
+        }
+        else
+        {
+            trueAnomaly = NormalizeAngle0ToTwoPi(rawTrueAnomaly);
         }
 
         // Numerically stable ellipse parameters from semi-latus rectum p.
@@ -103,6 +117,21 @@ public static class OrbitUtils
     {
         var wrapped = angle % (2d * Math.PI);
         return wrapped < 0d ? wrapped + (2d * Math.PI) : wrapped;
+    }
+
+    private static double NormalizeAngleSignedMinusPiToPi(double angle)
+    {
+        var wrapped = angle % (2d * Math.PI);
+        if (wrapped <= -Math.PI)
+        {
+            wrapped += 2d * Math.PI;
+        }
+        else if (wrapped > Math.PI)
+        {
+            wrapped -= 2d * Math.PI;
+        }
+
+        return wrapped;
     }
 }
 

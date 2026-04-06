@@ -90,10 +90,11 @@ public class UIRenderer
         var warpSize = font.MeasureString(warpText);
         var scoreSize = font.MeasureString(scoreText);
         var buttonRowWidth = (stepButtonWidth * 2f) + pauseButtonWidth + (buttonGap * 2f);
-        var panelWidth = Math.Max(Math.Max(Math.Max(timeSize.X, warpSize.X), scoreSize.X), buttonRowWidth) + (innerPadding * 2f);
+        var maxBtnLabelWidth = font.MeasureString("Station Center Lock [Off]").X;
+        var panelWidth = Math.Max(Math.Max(Math.Max(Math.Max(timeSize.X, warpSize.X), scoreSize.X), buttonRowWidth), maxBtnLabelWidth + innerPadding * 2f + 16f) + (innerPadding * 2f);
         var panelHeight = timeSize.Y + warpSize.Y + scoreSize.Y + buttonHeight + (lineGap * 3f) + (innerPadding * 2f);
         var panelX = padding;
-        var panelY = padding;
+        var panelY = GraphicsDevice.Viewport.Height - panelHeight - padding;
 
         SpriteBatch.FillRectangle(panelX, panelY, panelWidth, panelHeight, new Color(0, 0, 0, 180));
         SpriteBatch.DrawRectangle(panelX, panelY, panelWidth, panelHeight, Color.Gray * 0.6f, 1f);
@@ -144,14 +145,16 @@ public class UIRenderer
         var warpSize = font.MeasureString(warpText);
         var scoreSize = font.MeasureString(scoreText);
         var buttonRowWidth = (28f * 2f) + 90f + (buttonGap * 2f);
-        var panelWidth = Math.Max(Math.Max(Math.Max(timeSize.X, warpSize.X), scoreSize.X), buttonRowWidth) + (innerPadding * 2f);
+        // Measure longest possible button labels so they always fit inside the panel
+        var maxBtnLabelWidth = font.MeasureString("Station Center Lock [Off]").X;
+        var panelWidth = Math.Max(Math.Max(Math.Max(Math.Max(timeSize.X, warpSize.X), scoreSize.X), buttonRowWidth), maxBtnLabelWidth + innerPadding * 2f + 16f) + (innerPadding * 2f);
         var timePanelHeight = timeSize.Y + warpSize.Y + scoreSize.Y + buttonHeight + (lineGap * 3f) + (innerPadding * 2f);
 
         var panelX = padding;
-        var panelY = padding + timePanelHeight + panelGap;
 
         // four stacked buttons: orbits, maneuvers, projected view toggle, station-center toggle
         var totalHeight = (buttonHeight * 4f) + innerPadding * 2f + (buttonGap * 3f);
+        var panelY = GraphicsDevice.Viewport.Height - padding - timePanelHeight - panelGap - totalHeight;
         SpriteBatch.FillRectangle(panelX, panelY, panelWidth, totalHeight, new Color(0, 0, 0, 180));
         SpriteBatch.DrawRectangle(panelX, panelY, panelWidth, totalHeight, Color.Gray * 0.6f, 1f);
 
@@ -287,7 +290,7 @@ public class UIRenderer
 
         var panelHeight = padding * 2f + lineHeight * (1 + statLines.Length) + additionalCircularizeHeight + transferHeight + cameraSectionHeight;
         var panelX = GraphicsDevice.Viewport.Width - panelWidth - padding;
-        var panelY = padding;
+        var panelY = GraphicsDevice.Viewport.Height - panelHeight - padding;
 
         SpriteBatch.FillRectangle(panelX, panelY, panelWidth, panelHeight, new Color(0, 0, 0, 180));
         SpriteBatch.DrawRectangle(panelX, panelY, panelWidth, panelHeight, Color.Gray * 0.6f, 1f);
@@ -407,7 +410,11 @@ public class UIRenderer
             + lineHeight / 2f
             + confirmBtnH;
 
-        var panelX = GraphicsDevice.Viewport.Width - panelWidth - padding;
+        const float selectionPanelWidth = 300f;
+        const float selectionPanelPadding = 14f;
+        const float popupGap = 10f;
+        var selectionPanelX = GraphicsDevice.Viewport.Width - selectionPanelWidth - selectionPanelPadding;
+        var panelX = Math.Max(padding, selectionPanelX - popupGap - panelWidth);
         var panelY = GraphicsDevice.Viewport.Height - panelHeight - padding;
 
         SpriteBatch.FillRectangle(panelX, panelY, panelWidth, panelHeight, new Color(0, 0, 0, 180));
@@ -527,16 +534,21 @@ public class UIRenderer
         const float panelWidth = 340f;
 
         var panelHeight = padding * 2f
-            + lineHeight
-            + lineHeight
-            + lineHeight
-            + btnH + btnGap
+            + lineHeight           // title
+            + lineHeight           // start mode text
+            + lineHeight           // instruction text
+            + lineHeight           // target altitude
+            + btnH + btnGap        // altitude buttons row
             + lineHeight / 2f
-            + lineHeight * 3f
+            + lineHeight * 3f      // burn1/burn2/total dV
             + lineHeight / 2f
-            + 20f;
+            + 20f;                 // accept/cancel
 
-        var panelX = GraphicsDevice.Viewport.Width - panelWidth - padding;
+        const float selectionPanelWidth = 300f;
+        const float selectionPanelPadding = 14f;
+        const float popupGap = 10f;
+        var selectionPanelX = GraphicsDevice.Viewport.Width - selectionPanelWidth - selectionPanelPadding;
+        var panelX = Math.Max(padding, selectionPanelX - popupGap - panelWidth);
         var panelY = GraphicsDevice.Viewport.Height - panelHeight - padding;
 
         // Draw panel background
@@ -551,8 +563,10 @@ public class UIRenderer
         cy += lineHeight;
 
         var startModeText = gameState.HohmannTransferStartImmediate ? "Start: Immediate (+5 deg)" : "Start: Next AP/PE";
-        var modeText = isMouseSelecting ? $"{startModeText}  |  Move mouse over target orbit, then click to lock" : $"{startModeText}  |  Target locked - fine tune and Accept";
-        SpriteBatch.DrawString(font, modeText, new Vector2(panelX + padding, cy), isMouseSelecting ? Color.Orange : Color.LightGreen);
+        var instructionText = isMouseSelecting ? "Hover orbit to set altitude, click to lock" : "Target locked - fine tune & Accept";
+        SpriteBatch.DrawString(font, startModeText, new Vector2(panelX + padding, cy), isMouseSelecting ? Color.Orange : Color.LightGreen);
+        cy += lineHeight;
+        SpriteBatch.DrawString(font, instructionText, new Vector2(panelX + padding, cy), isMouseSelecting ? Color.Orange * 0.85f : Color.LightGreen * 0.85f);
         cy += lineHeight;
 
         // Altitude display with single row of buttons

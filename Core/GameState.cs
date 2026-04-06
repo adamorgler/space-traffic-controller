@@ -15,7 +15,7 @@ public partial class GameState
     public enum ViewMode { Default, Projected }
     public ViewMode CurrentViewMode { get; set; } = ViewMode.Projected;
     public float ProjectedPanX { get; set; } = 0f;
-    public bool IsProjectedCameraStationCentered { get; set; } = false;
+    public bool IsProjectedCameraStationCentered { get; set; } = true;
     private const double ScorePerSuccessBase = 0.5d;
     private const double ScorePenaltyPerMistake = 1d;
     private const int MaxMultiplier = 8;
@@ -87,7 +87,7 @@ public partial class GameState
         ElapsedTimeSeconds = 0d;
         IsPaused = false;
         IsCameraFocusedOnSelected = false;
-        IsProjectedCameraStationCentered = false;
+        IsProjectedCameraStationCentered = true;
         HohmannTransferTargetAltitudeMeters = Math.Clamp(500e3, 0d, CentralBody.ControlAltitudeMeters);
         IsHohmannTransferMouseTargetSelectionActive = false;
         HohmannTransferStartImmediate = false;

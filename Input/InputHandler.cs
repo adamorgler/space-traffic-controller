@@ -942,22 +942,16 @@ public class InputHandler
             return;
         }
 
-        var targetRadius = GameState.CentralBody.ControlRadius + 150_000d;
-        targetRadius = Math.Max(currentRadius + 1d, targetRadius);
-
-        var transferSemiMajorAxis = (currentRadius + targetRadius) / 2d;
-        if (transferSemiMajorAxis <= 0d || !double.IsFinite(transferSemiMajorAxis))
-        {
-            return;
-        }
-
-        var desiredSpeedSquared = mu * ((2d / currentRadius) - (1d / transferSemiMajorAxis));
+        // Build an escape trajectory directly by targeting slightly above local escape speed.
+        // The small margin avoids precision edge cases that can produce a near-parabolic closed orbit.
+        const double escapeSpeedMargin = 5d; // m/s
+        var desiredSpeedSquared = (2d * mu) / currentRadius;
         if (desiredSpeedSquared <= 0d || !double.IsFinite(desiredSpeedSquared))
         {
             return;
         }
 
-        var desiredSpeed = Math.Sqrt(desiredSpeedSquared);
+        var desiredSpeed = Math.Sqrt(desiredSpeedSquared) + escapeSpeedMargin;
         var currentSpeed = ship.Orbit.GetVelocityMagnitudeAtAngle(burnTrueAnomaly);
         if (!double.IsFinite(currentSpeed))
         {
