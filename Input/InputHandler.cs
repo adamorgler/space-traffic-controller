@@ -59,6 +59,10 @@ public class InputHandler
         }
 
         var transferShortcutHandled = HandleTransferModeShortcuts();
+        if (!transferShortcutHandled)
+        {
+            HandleManeuverAcceptShortcut();
+        }
 
         if (GameState.IsPaused)
         {
@@ -251,6 +255,22 @@ public class InputHandler
 
         if (GameState.CurrentViewMode == GameState.ViewMode.Projected)
         {
+            if (GameState.IsProjectedCameraStationCentered)
+            {
+                var station = GameState.Stations.FirstOrDefault();
+                if (station is not null)
+                {
+                    var width = Math.Max(1f, UIRenderer.ScreenWidth);
+                    var stationAngle = Math.Atan2(station.Orbit.PositionVectorD.Y, station.Orbit.PositionVectorD.X);
+                    var wrappedAngle = MathHelper.WrapAngle((float)stationAngle);
+                    var baseX = (width / 2f) + (wrappedAngle / MathF.PI) * (width / 2f);
+                    var desiredPan = baseX - (width / 2f);
+                    GameState.ProjectedPanX = (desiredPan % width + width) % width;
+                }
+
+                return;
+            }
+
             // Projected view supports horizontal-only panning (wrap handled by renderer).
             float projectedMoveSpeed = 1000f * dt;
             float moveX = 0f;
@@ -554,6 +574,7 @@ public class InputHandler
             UIAction.ToggleShowManeuvers => true,
             UIAction.CameraFocusSelected => true,
             UIAction.CameraResetView => true,
+            UIAction.ToggleProjectedStationCenter => true,
             UIAction.HohmannOpenDialogApsis => true,
             UIAction.HohmannOpenDialogImmediate => true,
             UIAction.HohmannAltitude10Decrease => true,
@@ -614,6 +635,9 @@ public class InputHandler
             case UIAction.ToggleShowManeuvers:
                 GameState.ShowAllManeuvers = !GameState.ShowAllManeuvers;
                 return;
+            case UIAction.ToggleProjectedStationCenter:
+                GameState.IsProjectedCameraStationCentered = !GameState.IsProjectedCameraStationCentered;
+                return;
             case UIAction.CameraFocusSelected:
                 ToggleCameraFocusForSelectedObject();
                 return;
@@ -652,6 +676,12 @@ public class InputHandler
                 GameState.IsHohmannTransferDialogOpen = true;
                 GameState.IsHohmannTransferMouseTargetSelectionActive = true;
                 ApplyQuickHohmannTransferToAltitude(ship);
+                break;
+            case UIAction.OutboundSetExitManeuverApsis:
+                ApplyOutboundExitManeuver(ship, startImmediate: false);
+                break;
+            case UIAction.OutboundSetExitManeuverImmediate:
+                ApplyOutboundExitManeuver(ship, startImmediate: true);
                 break;
             case UIAction.HohmannAltitude10Decrease:
                 GameState.HohmannTransferTargetAltitudeMeters = Math.Max(0d, GameState.HohmannTransferTargetAltitudeMeters - 10_000d);
@@ -764,6 +794,109 @@ public class InputHandler
         ship.ApplyQuickHohmannTransferToAltitude(
             GameState.HohmannTransferTargetAltitudeMeters,
             GameState.HohmannTransferStartImmediate);
+    }
+
+    private void ApplyOutboundExitManeuver(Ship ship, bool startImmediate)
+    {
+        if (ship.Orbit.IsEscapeTrajectory)
+        {
+            return;
+        }
+
+        var mu = PhysicalConstants.G * GameState.CentralBody.Mass;
+        if (mu <= 0d)
+        {
+            return;
+        }
+
+        var currentRadius = ship.PositionD.Length();
+        if (!double.IsFinite(currentRadius) || currentRadius <= 0d)
+        {
+            return;
+        }
+
+        var burnTrueAnomaly = ship.Orbit.TrueAnomaly;
+        if (!startImmediate)
+        {
+            var timeToPeriapsis = ship.Orbit.TimeToTrueAomaly(0d);
+            var timeToApoapsis = ship.Orbit.TimeToTrueAomaly(Math.PI);
+            var burnAtPeriapsis = !double.IsFinite(timeToApoapsis)
+                || (double.IsFinite(timeToPeriapsis) && timeToPeriapsis <= timeToApoapsis);
+            burnTrueAnomaly = burnAtPeriapsis ? 0d : Math.PI;
+        }
+        else
+        {
+            const double leadAngleRadians = 10d * Math.PI / 180d;
+            var twoPi = 2d * Math.PI;
+            burnTrueAnomaly = (ship.Orbit.TrueAnomaly + leadAngleRadians) % twoPi;
+            if (burnTrueAnomaly < 0d)
+            {
+                burnTrueAnomaly += twoPi;
+            }
+        }
+
+        currentRadius = ship.Orbit.GetRadiusFromFoci(burnTrueAnomaly);
+        if (!double.IsFinite(currentRadius) || currentRadius <= 0d)
+        {
+            return;
+        }
+
+        var targetRadius = GameState.CentralBody.ControlRadius + 150_000d;
+        targetRadius = Math.Max(currentRadius + 1d, targetRadius);
+
+        var transferSemiMajorAxis = (currentRadius + targetRadius) / 2d;
+        if (transferSemiMajorAxis <= 0d || !double.IsFinite(transferSemiMajorAxis))
+        {
+            return;
+        }
+
+        var desiredSpeedSquared = mu * ((2d / currentRadius) - (1d / transferSemiMajorAxis));
+        if (desiredSpeedSquared <= 0d || !double.IsFinite(desiredSpeedSquared))
+        {
+            return;
+        }
+
+        var desiredSpeed = Math.Sqrt(desiredSpeedSquared);
+        var currentSpeed = ship.Orbit.GetVelocityMagnitudeAtAngle(burnTrueAnomaly);
+        if (!double.IsFinite(currentSpeed))
+        {
+            return;
+        }
+
+        ship.ManeuverNode = new ManeuverNode()
+        {
+            TrueAnomaly = burnTrueAnomaly,
+            ScreenPosition = (ship.Orbit.GetPositionAtAngleD(burnTrueAnomaly) / GameConstants.RenderingScale).ToVector2(),
+            ProgradeDeltaV = desiredSpeed - currentSpeed,
+        };
+        ship.NextManeuverNode = null;
+    }
+
+    private void HandleManeuverAcceptShortcut()
+    {
+        if (GameState.IsHohmannTransferDialogOpen)
+        {
+            return;
+        }
+
+        if (KeyboardState.IsKeyDown(Keys.Enter) && PrevKeyboardState.IsKeyUp(Keys.Enter))
+        {
+            var ship = GameState.SelectedShip;
+            if (ship is null)
+            {
+                return;
+            }
+
+            if (ship.ManeuverNode is not null)
+            {
+                ship.ManeuverNode.IsConfirmed = true;
+            }
+
+            if (ship.NextManeuverNode is not null)
+            {
+                ship.NextManeuverNode.IsConfirmed = true;
+            }
+        }
     }
 
     private void UpdateHohmannTransferMousePreview(bool forceApply = false)

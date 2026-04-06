@@ -59,11 +59,6 @@ public class Ship : HasOrbit
 
     public bool ShouldDespawn()
     {
-        if (Destination is not null && Destination.HasArrived(this))
-        {
-            return true;
-        }
-
         if (!Orbit.IsEscapeTrajectory)
         {
             return false;
@@ -313,4 +308,10 @@ public class ShipStatus
     public bool IsEncroached { get; set; } = false;
     public bool WasEncroachedLastFrame { get; set; } = false;
     public bool IsControllable { get; set; } = true;
+    public bool IsInStationControlArea { get; set; } = false;
+    public bool IsLockedUntilOutsideStationControlArea { get; set; } = false;
+    public bool IsStationArrivalHoldingForDespawn { get; set; } = false;
+    public bool HasEnteredStationControlAreaOnce { get; set; } = false;
+    public double StationArrivalDespawnTimerSeconds { get; set; } = 0d;
+    public double ActivationFlashTimeRemainingSeconds { get; set; } = 0d;
 }

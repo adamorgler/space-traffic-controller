@@ -9,7 +9,7 @@ using System.Collections.Generic;
 
 namespace SpaceTrafficController.UI;
 
-public enum UIAction { None, ManeuverProgradeStep, ManeuverNormalStep, CircularizeAtPE, CircularizeAtAP, HohmannOpenDialogApsis, HohmannOpenDialogImmediate, HohmannAltitude10Decrease, HohmannAltitude10Increase, HohmannAltitude50Decrease, HohmannAltitude50Increase, HohmannAltitude100Decrease, HohmannAltitude100Increase, HohmannConfirm, HohmannCancel, ManeuverAccept, ManeuverCancel, WarpDecrease, WarpIncrease, PauseToggle, CameraFocusSelected, CameraResetView, ToggleOrbitsVisibility, ToggleShowManeuvers, ToggleViewMode }
+public enum UIAction { None, ManeuverProgradeStep, ManeuverNormalStep, CircularizeAtPE, CircularizeAtAP, HohmannOpenDialogApsis, HohmannOpenDialogImmediate, HohmannAltitude10Decrease, HohmannAltitude10Increase, HohmannAltitude50Decrease, HohmannAltitude50Increase, HohmannAltitude100Decrease, HohmannAltitude100Increase, HohmannConfirm, HohmannCancel, ManeuverAccept, ManeuverCancel, WarpDecrease, WarpIncrease, PauseToggle, CameraFocusSelected, CameraResetView, ToggleOrbitsVisibility, ToggleShowManeuvers, ToggleViewMode, ToggleProjectedStationCenter, OutboundSetExitManeuverApsis, OutboundSetExitManeuverImmediate }
 public record UIButtonResult(UIAction Action, double StepValue = 0d);
 
 public class UIRenderer
@@ -138,8 +138,8 @@ public class UIRenderer
         var panelX = padding;
         var panelY = padding + timePanelHeight + panelGap;
 
-        // three stacked buttons: orbits, maneuvers, projected view toggle
-        var totalHeight = (buttonHeight * 3f) + innerPadding * 2f + (buttonGap * 2f);
+        // four stacked buttons: orbits, maneuvers, projected view toggle, station-center toggle
+        var totalHeight = (buttonHeight * 4f) + innerPadding * 2f + (buttonGap * 3f);
         SpriteBatch.FillRectangle(panelX, panelY, panelWidth, totalHeight, new Color(0, 0, 0, 180));
         SpriteBatch.DrawRectangle(panelX, panelY, panelWidth, totalHeight, Color.Gray * 0.6f, 1f);
 
@@ -158,6 +158,11 @@ public class UIRenderer
         DrawPanelButton(new RectangleF(panelX + innerPadding, panelY + innerPadding + (buttonHeight + buttonGap) * 2f, panelWidth - innerPadding * 2f, buttonHeight),
             viewLabel,
             new UIButtonResult(UIAction.ToggleViewMode));
+
+        var centerLabel = gameState.IsProjectedCameraStationCentered ? "Station Center Lock [On]" : "Station Center Lock [Off]";
+        DrawPanelButton(new RectangleF(panelX + innerPadding, panelY + innerPadding + (buttonHeight + buttonGap) * 3f, panelWidth - innerPadding * 2f, buttonHeight),
+            centerLabel,
+            new UIButtonResult(UIAction.ToggleProjectedStationCenter));
     }
 
     private void DrawPausedOverlay(GameState gameState)
@@ -235,7 +240,12 @@ public class UIRenderer
 
         var showCameraButtons = selected is Ship;
         var cameraSectionHeight = showCameraButtons ? (cameraBtnHeight + padding / 2f) : 0f;
-        var transferHeight = selected is Ship ? (padding / 2f) + (btnHeight * 2f) + btnGap : 0f;
+        var transferButtonRows = selected is Ship selectedShipForRows
+            ? selectedShipForRows.Destination is ExitControlAreaDestination ? 4 : 2
+            : 0;
+        var transferHeight = transferButtonRows > 0
+            ? (padding / 2f) + (btnHeight * transferButtonRows) + (btnGap * (transferButtonRows - 1))
+            : 0f;
 
         var panelHeight = padding * 2f + lineHeight * (1 + statLines.Length) + additionalCircularizeHeight + transferHeight + cameraSectionHeight;
         var panelX = GraphicsDevice.Viewport.Width - panelWidth - padding;
@@ -284,6 +294,21 @@ public class UIRenderer
                 "Transfer (Immediate)",
                 new UIButtonResult(UIAction.HohmannOpenDialogImmediate),
                 new Color(24, 72, 96));
+
+            if (selectedShip.Destination is ExitControlAreaDestination)
+            {
+                DrawPanelButton(
+                    new RectangleF(panelX + padding, transferBtnY + (btnHeight + btnGap) * 2f, panelWidth - (padding * 2f), btnHeight),
+                    "Exit Maneuver (Next AP/PE)",
+                    new UIButtonResult(UIAction.OutboundSetExitManeuverApsis),
+                    new Color(72, 36, 96));
+
+                DrawPanelButton(
+                    new RectangleF(panelX + padding, transferBtnY + (btnHeight + btnGap) * 3f, panelWidth - (padding * 2f), btnHeight),
+                    "Exit Maneuver (Immediate)",
+                    new UIButtonResult(UIAction.OutboundSetExitManeuverImmediate),
+                    new Color(72, 36, 96));
+            }
         }
 
         if (showCameraButtons)

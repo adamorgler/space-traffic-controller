@@ -43,8 +43,10 @@ public abstract class SimulationRendererBase
     protected static readonly Color UncontrolledShipColor = Color.LightGray;
     protected static readonly Color SelectedShipColor = Color.Gold;
     protected static readonly Color ActiveShipColor = Color.LimeGreen;
+    protected static readonly Color ExitDestinationShipColor = Color.MediumPurple;
     protected static readonly Color EncroachedSeparationColor = Color.Red;
     protected static readonly Color SafeSeparationColor = Color.Green;
+    protected static readonly Color ActivationFlashColor = Color.Yellow;
 
     protected static readonly Color SelectedStationColor = Color.Gold;
     protected static readonly Color StationColor = Color.AliceBlue;
@@ -60,6 +62,7 @@ public abstract class SimulationRendererBase
     protected const double ClosestApproachFineWindow = 0.15d;
     protected const double ClosestApproachExclusionWindow = 0.6d;
     protected const double ClosestApproachLineThresholdMeters = 5000d;
+    protected const double ActivationFlashBlinkSeconds = 0.2d;
 
     protected SimulationRendererBase(GraphicsDevice graphicsDevice, SpriteBatch spriteBatch, Camera2D camera)
     {
@@ -85,6 +88,18 @@ public abstract class SimulationRendererBase
         if (meters >= 10_000d)
             return $"{meters / 1000d:0.0}km";
         return $"{meters:0}m";
+    }
+
+    protected static bool ShouldDrawActivationFlash(Ship ship)
+    {
+        var remaining = ship.Status.ActivationFlashTimeRemainingSeconds;
+        if (remaining <= 0d)
+        {
+            return false;
+        }
+
+        var phase = (int)Math.Floor(remaining / ActivationFlashBlinkSeconds);
+        return (phase & 1) == 0;
     }
 
     protected List<List<Vector2>> BuildStationControlPaths(

@@ -13,8 +13,9 @@ namespace SpaceTrafficController.Core;
 public class GameState
 {
     public enum ViewMode { Default, Projected }
-    public ViewMode CurrentViewMode { get; set; } = ViewMode.Default;
+    public ViewMode CurrentViewMode { get; set; } = ViewMode.Projected;
     public float ProjectedPanX { get; set; } = 0f;
+    public bool IsProjectedCameraStationCentered { get; set; } = false;
     private const double ScorePerSuccessBase = 0.5d;
     private const double ScorePenaltyPerMistake = 1d;
     private const int MaxMultiplier = 8;
@@ -22,15 +23,25 @@ public class GameState
     private const double ArrivalLaneOffsetMeters = 50e3;
     private const double ArrivalSpawnInnerBufferMeters = 25e3;
     private const double DepartureDriftOffsetMeters = 100e3;
-    private const double DepartureLaneSpawnBufferMeters = 50e3;
+    private const double DepartureLaneSpawnBufferMeters = 30e3;
     private const double InboundExitOvershootMeters = 250e3;
     private const double InboundPeriapsisRandomRangeMeters = 450e3;
     private const double HighEllipseSpawnChance = 0.8d;
     private const double MinSpawnAltitudeAboveAtmosphereBufferMeters = 25e3;
+    private const double DepartureSpawnControlAreaDepthFactor = 0.2d;
+    private const double DepartureSpawnDriftDeltaMeters = 250e3;
+    private const double StationArrivalDespawnHoldSeconds = 300d;
+    private const double ActivationFlashDurationSeconds = 2.4d;
 
     private readonly Random _rng = new();
     private double _timeSinceOutboundSpawnSeconds;
     private double _nextOutboundSpawnDelaySeconds;
+    private double _timeSinceDepartureLaneUpperSpawnSeconds;
+    private double _nextDepartureLaneUpperSpawnDelaySeconds;
+    private double _timeSinceDepartureLaneLowerSpawnSeconds;
+    private double _nextDepartureLaneLowerSpawnDelaySeconds;
+    private double _timeSinceInboundSpawnSeconds;
+    private double _nextInboundSpawnDelaySeconds;
 
     public static CelestialBody CentralBody { get; set; }
     public List<HasOrbit> OrbitingObjects { get; set; }
@@ -59,7 +70,7 @@ public class GameState
     public bool HohmannTransferStartImmediate { get; set; } = false;
     public double Score { get; private set; }
     public int ScoreMultiplier { get; private set; }
-    public int TargetActiveShips => GetTargetShipCount();
+    public int TargetActiveShips => GetTargetShipCount() * 2;
 
     public void Init()
     {
@@ -76,6 +87,7 @@ public class GameState
         ElapsedTimeSeconds = 0d;
         IsPaused = false;
         IsCameraFocusedOnSelected = false;
+        IsProjectedCameraStationCentered = false;
         HohmannTransferTargetAltitudeMeters = Math.Clamp(500e3, 0d, CentralBody.ControlAltitudeMeters);
         IsHohmannTransferMouseTargetSelectionActive = false;
         HohmannTransferStartImmediate = false;
@@ -83,13 +95,20 @@ public class GameState
         ScoreMultiplier = 1;
         _timeSinceOutboundSpawnSeconds = 0d;
         _nextOutboundSpawnDelaySeconds = NextOutboundSpawnDelaySeconds();
+        _timeSinceDepartureLaneUpperSpawnSeconds = 0d;
+        _nextDepartureLaneUpperSpawnDelaySeconds = NextDepartureLaneSpawnDelaySeconds();
+        _timeSinceDepartureLaneLowerSpawnSeconds = 0d;
+        _nextDepartureLaneLowerSpawnDelaySeconds = NextDepartureLaneSpawnDelaySeconds();
+        _timeSinceInboundSpawnSeconds = 0d;
+        _nextInboundSpawnDelaySeconds = NextInboundSpawnDelaySeconds();
 
         InitializeScenario();
     }
 
     public void Update(GameTime gameTime)
     {
-        var timeStep = IsPaused ? 0d : gameTime.ElapsedGameTime.TotalSeconds * Warp;
+        var realElapsedSeconds = gameTime.ElapsedGameTime.TotalSeconds;
+        var timeStep = IsPaused ? 0d : realElapsedSeconds * Warp;
         ElapsedTimeSeconds += timeStep;
 
         foreach (var orbiter in OrbitingObjects)
@@ -97,23 +116,59 @@ public class GameState
             orbiter.Update(timeStep);
         }
 
-        // Update ship controllability based on control altitude
+        var station = Stations.FirstOrDefault();
+
+        // Update ship controllability based on control altitude and station-control-area rules.
         var controlRadius = CentralBody.ControlRadius;
         foreach (var ship in Ships)
         {
             var dist = ship.PositionD.Length();
-            if (!ship.Orbit.IsEscapeTrajectory && dist >= controlRadius)
+            var wasControllable = ship.Status.IsControllable;
+            var wasInStationControlArea = ship.Status.IsInStationControlArea;
+            ship.Status.IsInStationControlArea = station is not null && IsInsideStationControlArea(ship.PositionD, station);
+            var isControllable = ship.Orbit.IsEscapeTrajectory || dist < controlRadius;
+
+            if (station is not null && ship.Status.IsLockedUntilOutsideStationControlArea)
             {
-                ship.Status.IsControllable = false;
+                if (!IsInsideStationControlArea(ship.PositionD, station))
+                {
+                    ship.Status.IsLockedUntilOutsideStationControlArea = false;
+                    BeginActivationFlash(ship);
+                }
+                else
+                {
+                    isControllable = false;
+                }
             }
-            else
+
+            if (ship.Status.IsStationArrivalHoldingForDespawn)
             {
-                ship.Status.IsControllable = true;
+                isControllable = false;
+            }
+
+            ship.Status.IsControllable = isControllable;
+
+            // Flash when entering station control area for the first time (inbound ships)
+            if (!wasInStationControlArea && ship.Status.IsInStationControlArea && !ship.Status.HasEnteredStationControlAreaOnce)
+            {
+                ship.Status.HasEnteredStationControlAreaOnce = true;
+                BeginActivationFlash(ship);
+            }
+
+            if (!wasControllable && isControllable)
+            {
+                BeginActivationFlash(ship);
+            }
+
+            // Decrement flash timer using real elapsed time (not warped time) so it displays consistently
+            if (realElapsedSeconds > 0d && ship.Status.ActivationFlashTimeRemainingSeconds > 0d)
+            {
+                ship.Status.ActivationFlashTimeRemainingSeconds = Math.Max(0d, ship.Status.ActivationFlashTimeRemainingSeconds - realElapsedSeconds);
             }
         }
 
         CheckShipSeperation();
-        RemoveDespawnedShips();
+        RemoveDespawnedShips(timeStep);
 
         if (timeStep > 0d)
         {
@@ -121,7 +176,7 @@ public class GameState
         }
     }
 
-    public int WarpState { get; set; } = 1;
+    public int WarpState { get; set; } = 5;
     private int Warp
     {
         get
@@ -138,19 +193,21 @@ public class GameState
                 8 => 128,
                 9 => 256,
                 10 => 512,
-                _ => 1
+                11 => 1024,
+                12 => 2048,
+                _ => 16
             };
         }
     }
 
     public void IncreaseWarp()
     {
-        WarpState = Math.Clamp(WarpState + 1, 1, 10);
+        WarpState = Math.Clamp(WarpState + 1, 5, 12);
     }
 
     public void DecreaseWarp()
     {
-        WarpState = Math.Clamp(WarpState - 1, 1, 10);
+        WarpState = Math.Clamp(WarpState - 1, 5, 12);
     }
 
     public void TogglePause()
@@ -167,6 +224,12 @@ public class GameState
         {
             ship.Status.WasEncroachedLastFrame = ship.Status.IsEncroached;
             ship.Status.IsEncroached = false;
+
+            // Ships inside station control area are intentionally exempt from separation conflicts.
+            if (ship.Status.IsInStationControlArea)
+            {
+                continue;
+            }
 
             int cx = (int)MathF.Floor(ship.Position.X / cellSize);
             int cy = (int)MathF.Floor(ship.Position.Y / cellSize);            
@@ -219,23 +282,52 @@ public class GameState
         }
     }
 
-    private void RemoveDespawnedShips()
+    private void RemoveDespawnedShips(double timeStep)
     {
-        var controlRadius = CentralBody.ControlRadius;
         var despawnedShips = new List<Ship>();
 
         foreach (var ship in Ships)
         {
             var reachedDestination = ship.Destination?.HasArrived(ship) ?? false;
-            var shouldDespawn = reachedDestination
-                || ship.ShouldDespawn();
+            var shouldRegisterSuccess = false;
+            var shouldDespawn = false;
+
+            if (ship.Destination is StationDestination)
+            {
+                if (reachedDestination && !ship.Status.IsStationArrivalHoldingForDespawn)
+                {
+                    ship.Status.IsStationArrivalHoldingForDespawn = true;
+                    ship.Status.StationArrivalDespawnTimerSeconds = StationArrivalDespawnHoldSeconds;
+                }
+
+                if (ship.Status.IsStationArrivalHoldingForDespawn)
+                {
+                    ship.Status.StationArrivalDespawnTimerSeconds = Math.Max(0d, ship.Status.StationArrivalDespawnTimerSeconds - timeStep);
+                    ship.Status.IsControllable = false;
+                    if (ship.Status.StationArrivalDespawnTimerSeconds <= 0d)
+                    {
+                        shouldDespawn = true;
+                        shouldRegisterSuccess = true;
+                    }
+                }
+            }
+            else if (reachedDestination)
+            {
+                shouldDespawn = true;
+                shouldRegisterSuccess = true;
+            }
+
+            if (ship.ShouldDespawn())
+            {
+                shouldDespawn = true;
+            }
 
             if (!shouldDespawn)
             {
                 continue;
             }
 
-            if (reachedDestination)
+            if (shouldRegisterSuccess)
             {
                 RegisterSuccessfulDestination();
             }
@@ -271,10 +363,22 @@ public class GameState
 
         OrbitingObjects.Add(station);
 
-        var initialInboundShipCount = _rng.Next(4, 6);
-        for (int i = 0; i < initialInboundShipCount; i++)
+        var targetPerFlow = GetTargetShipCount();
+        for (int i = 0; i < targetPerFlow; i++)
         {
             SpawnInboundShip(station);
+        }
+
+        for (int i = 0; i < targetPerFlow; i++)
+        {
+            var availableDepartureLanes = GetAvailableDepartureLanes(station);
+            if (availableDepartureLanes.Count == 0)
+            {
+                break;
+            }
+
+            var lane = availableDepartureLanes[_rng.Next(availableDepartureLanes.Count)];
+            SpawnOutboundShip(station, lane);
         }
     }
 
@@ -286,23 +390,44 @@ public class GameState
             return;
         }
 
-        var targetShipCount = GetTargetShipCount();
-        _timeSinceOutboundSpawnSeconds += timeStep;
-        if (Ships.Count < targetShipCount && _timeSinceOutboundSpawnSeconds >= _nextOutboundSpawnDelaySeconds)
+        var targetPerFlow = GetTargetShipCount();
+        var inboundCount = Ships.Count(ship => ship.Destination is StationDestination);
+        var outboundCount = Ships.Count(ship => ship.Destination is ExitControlAreaDestination);
+
+        // Update inbound spawn timer
+        _timeSinceInboundSpawnSeconds += timeStep;
+        if (inboundCount < targetPerFlow && _timeSinceInboundSpawnSeconds >= _nextInboundSpawnDelaySeconds)
         {
-            var availableDepartureLanes = GetAvailableDepartureLanes(station);
-            if (availableDepartureLanes.Count > 0)
+            SpawnInboundShip(station);
+            inboundCount++;
+            _timeSinceInboundSpawnSeconds = 0d;
+            _nextInboundSpawnDelaySeconds = NextInboundSpawnDelaySeconds();
+        }
+
+        // Update upper departure lane spawn timer
+        _timeSinceDepartureLaneUpperSpawnSeconds += timeStep;
+        if (outboundCount < targetPerFlow && _timeSinceDepartureLaneUpperSpawnSeconds >= _nextDepartureLaneUpperSpawnDelaySeconds)
+        {
+            if (CanSpawnOutboundShipInLane(station, ShipTrafficLane.StationDepartureUpper))
             {
-                var lane = availableDepartureLanes[_rng.Next(availableDepartureLanes.Count)];
-                SpawnOutboundShip(station, lane);
-                _timeSinceOutboundSpawnSeconds = 0d;
-                _nextOutboundSpawnDelaySeconds = NextOutboundSpawnDelaySeconds();
+                SpawnOutboundShip(station, ShipTrafficLane.StationDepartureUpper);
+                outboundCount++;
+                _timeSinceDepartureLaneUpperSpawnSeconds = 0d;
+                _nextDepartureLaneUpperSpawnDelaySeconds = NextDepartureLaneSpawnDelaySeconds();
             }
         }
 
-        while (Ships.Count < targetShipCount)
+        // Update lower departure lane spawn timer
+        _timeSinceDepartureLaneLowerSpawnSeconds += timeStep;
+        if (outboundCount < targetPerFlow && _timeSinceDepartureLaneLowerSpawnSeconds >= _nextDepartureLaneLowerSpawnDelaySeconds)
         {
-            SpawnInboundShip(station);
+            if (CanSpawnOutboundShipInLane(station, ShipTrafficLane.StationDepartureLower))
+            {
+                SpawnOutboundShip(station, ShipTrafficLane.StationDepartureLower);
+                outboundCount++;
+                _timeSinceDepartureLaneLowerSpawnSeconds = 0d;
+                _nextDepartureLaneLowerSpawnDelaySeconds = NextDepartureLaneSpawnDelaySeconds();
+            }
         }
     }
 
@@ -313,22 +438,17 @@ public class GameState
 
     private void SpawnInboundShip(Station station)
     {
-        var orbit = CreateRandomInboundOrbit(station);
-        var spawnApoapsis = orbit.Apoapsis;
-        var minSpawnAltitude = Math.Min(
-            spawnApoapsis,
-            Math.Max(
-                orbit.Periapsis + ArrivalSpawnInnerBufferMeters,
-                station.Orbit.Periapsis + station.ControlAreaHalfAltitudeMeters + ArrivalSpawnInnerBufferMeters));
-        var maxSpawnAltitude = Math.Min(spawnApoapsis, CentralBody.ControlAltitudeMeters - ArrivalEdgeBufferMeters);
-        if (maxSpawnAltitude < minSpawnAltitude)
+        Orbit orbit;
+        const int maxSpawnAttempts = 12;
+        int attempt = 0;
+        do
         {
-            maxSpawnAltitude = minSpawnAltitude;
+            orbit = CreateRandomInboundOrbit(station);
+            // Ships spawn at apoapsis (outside control area), so we only need to verify
+            // the periapsis passes through or near the station control area
+            attempt++;
         }
-
-        var spawnAltitude = minSpawnAltitude + (_rng.NextDouble() * Math.Max(1d, maxSpawnAltitude - minSpawnAltitude));
-        var spawnRadius = CentralBody.Radius + spawnAltitude;
-        orbit.TrueAnomaly = GetInboundSpawnTrueAnomaly(orbit, spawnRadius);
+        while (attempt < maxSpawnAttempts && IsInsideStationControlArea(orbit.PositionVectorD, station));
 
         var ship = new Ship(orbit)
         {
@@ -346,45 +466,36 @@ public class GameState
         var basePeriapsis = stationAltitude + laneOffset;
         var periapsisJitter = ((_rng.NextDouble() * 2d) - 1d) * InboundPeriapsisRandomRangeMeters;
         var minimumSpawnAltitude = GetMinimumSpawnAltitude();
+        
+        // Periapsis should be near the station (with some jitter)
         var periapsis = Math.Max(minimumSpawnAltitude, basePeriapsis + periapsisJitter);
 
-        var isHighlyElliptical = _rng.NextDouble() < HighEllipseSpawnChance;
-        var apoapsis = isHighlyElliptical
-            ? CentralBody.ControlAltitudeMeters + (_rng.NextDouble() * InboundExitOvershootMeters)
-            : Math.Max(periapsis + 100e3, CentralBody.ControlAltitudeMeters - ArrivalEdgeBufferMeters - (_rng.NextDouble() * 250e3));
+        // Apoapsis should be outside the control area so the ship spawns there
+        var controlAltitude = CentralBody.ControlAltitudeMeters;
+        var spawnAltitudeAboveControl = 250e3 + (_rng.NextDouble() * InboundExitOvershootMeters);
+        var apoapsis = controlAltitude + spawnAltitudeAboveControl;
 
+        // Ensure apoapsis > periapsis
         apoapsis = Math.Max(periapsis + 50e3, apoapsis);
 
         return new Orbit(
             apoapsis: apoapsis,
             periapsis: periapsis,
             argumentOfPeriapsis: _rng.NextDouble() * Math.PI * 2d,
-            trueAnomaly: Math.PI);
+            trueAnomaly: Math.PI); // Start at apoapsis (outside control area)
     }
 
     private void SpawnOutboundShip(Station station, ShipTrafficLane lane)
     {
-        var stationPosition = station.Orbit.PositionVectorD;
-        var stationAngle = Math.Atan2(stationPosition.Y, stationPosition.X);
-        var stationRadius = stationPosition.Length();
-        var departureAngle = stationRadius <= 0d ? 0d : station.ControlAreaDepartureExtentMeters / stationRadius;
-
-        var isUpperDepartureLane = lane == ShipTrafficLane.StationDepartureUpper;
-        var laneAngle = stationAngle + (isUpperDepartureLane ? -departureAngle : departureAngle);
-        var targetApoapsis = Math.Max(
-            GetMinimumSpawnAltitude(),
-            station.Orbit.Periapsis + (isUpperDepartureLane ? DepartureDriftOffsetMeters : -DepartureDriftOffsetMeters));
-
-        var ship = new Ship(new Orbit(
-            apoapsis: targetApoapsis,
-            periapsis: targetApoapsis,
-            argumentOfPeriapsis: 0d,
-            trueAnomaly: laneAngle))
+        var ship = new Ship(CreateOutboundSpawnOrbit(station, lane))
         {
             Name = $"Outbound-{ElapsedTimeSeconds:F0}",
             Destination = new ExitControlAreaDestination(),
             TrafficLane = lane,
         };
+
+        ship.Status.IsLockedUntilOutsideStationControlArea = true;
+        ship.Status.IsControllable = false;
 
         OrbitingObjects.Add(ship);
     }
@@ -432,6 +543,11 @@ public class GameState
 
     private DVector2 GetOutboundLaneSpawnPosition(Station station, ShipTrafficLane lane)
     {
+        return CreateOutboundSpawnOrbit(station, lane).PositionVectorD;
+    }
+
+    private Orbit CreateOutboundSpawnOrbit(Station station, ShipTrafficLane lane)
+    {
         var stationPosition = station.Orbit.PositionVectorD;
         var stationAngle = Math.Atan2(stationPosition.Y, stationPosition.X);
         var stationRadius = stationPosition.Length();
@@ -439,13 +555,36 @@ public class GameState
 
         var isUpperDepartureLane = lane == ShipTrafficLane.StationDepartureUpper;
         var laneAngle = stationAngle + (isUpperDepartureLane ? -departureAngle : departureAngle);
-        var spawnAltitude = Math.Max(1d, station.Orbit.Periapsis + (isUpperDepartureLane ? DepartureDriftOffsetMeters : -DepartureDriftOffsetMeters));
+        var spawnAltitude = GetOutboundSpawnAltitude(station, lane);
 
+        if (isUpperDepartureLane)
+        {
+            // Upper lane: spawn near periapsis and drift outward to +100 km.
+            var periapsis = spawnAltitude;
+            var apoapsis = Math.Max(periapsis + 1d, spawnAltitude + DepartureSpawnDriftDeltaMeters);
+            return new Orbit(
+                apoapsis: apoapsis,
+                periapsis: periapsis,
+                argumentOfPeriapsis: laneAngle,
+                trueAnomaly: 0d);
+        }
+
+        // Lower lane: spawn near apoapsis and drift inward to -100 km.
+        var targetPeriapsis = Math.Max(GetMinimumSpawnAltitude(), spawnAltitude - DepartureSpawnDriftDeltaMeters);
+        var targetApoapsis = Math.Max(targetPeriapsis + 1d, spawnAltitude);
         return new Orbit(
-            apoapsis: spawnAltitude,
-            periapsis: spawnAltitude,
-            argumentOfPeriapsis: 0d,
-            trueAnomaly: laneAngle).PositionVectorD;
+            apoapsis: targetApoapsis,
+            periapsis: targetPeriapsis,
+            argumentOfPeriapsis: laneAngle - Math.PI,
+            trueAnomaly: Math.PI);
+    }
+
+    private double GetOutboundSpawnAltitude(Station station, ShipTrafficLane lane)
+    {
+        var laneSign = lane == ShipTrafficLane.StationDepartureUpper ? 1d : -1d;
+        var insideControlOffset = station.ControlAreaHalfAltitudeMeters * DepartureSpawnControlAreaDepthFactor;
+        var spawnAltitude = station.Orbit.Periapsis + (laneSign * insideControlOffset);
+        return Math.Max(GetMinimumSpawnAltitude(), spawnAltitude);
     }
 
     private static double GetInboundSpawnTrueAnomaly(Orbit orbit, double spawnRadius)
@@ -468,6 +607,81 @@ public class GameState
         var minDelay = 30d * difficultyScale;
         var maxDelay = 60d * difficultyScale;
         return minDelay + (_rng.NextDouble() * (maxDelay - minDelay));
+    }
+
+    private double NextDepartureLaneSpawnDelaySeconds()
+    {
+        var difficultyScale = Math.Clamp(1d - (Score / 40d), 0.45d, 1.15d);
+        // Each lane has its own shorter delay to avoid synchronized spawning
+        var minDelay = 15d * difficultyScale;
+        var maxDelay = 45d * difficultyScale;
+        return minDelay + (_rng.NextDouble() * (maxDelay - minDelay));
+    }
+
+    private double NextInboundSpawnDelaySeconds()
+    {
+        var difficultyScale = Math.Clamp(1d - (Score / 40d), 0.45d, 1.15d);
+        // Inbound ships spawn on a staggered delay to feel more natural
+        var minDelay = 5d * difficultyScale;
+        var maxDelay = 20d * difficultyScale;
+        return minDelay + (_rng.NextDouble() * (maxDelay - minDelay));
+    }
+
+    private static bool IsInsideStationControlArea(DVector2 shipPosition, Station station)
+    {
+        var stationPosition = station.Orbit.PositionVectorD;
+        var stationRadius = stationPosition.Length();
+        if (stationRadius <= 0d)
+        {
+            return false;
+        }
+
+        var shipRadius = shipPosition.Length();
+        var innerRadius = Math.Max(1d, stationRadius - station.ControlAreaHalfAltitudeMeters);
+        var outerRadius = stationRadius + station.ControlAreaHalfAltitudeMeters;
+        if (shipRadius < innerRadius || shipRadius > outerRadius)
+        {
+            return false;
+        }
+
+        var arrivalAngle = station.ControlAreaArrivalExtentMeters / stationRadius;
+        var departureAngle = station.ControlAreaDepartureExtentMeters / stationRadius;
+        var stationAngle = Math.Atan2(stationPosition.Y, stationPosition.X);
+        var shipAngle = Math.Atan2(shipPosition.Y, shipPosition.X);
+        var stationVelocity = station.Orbit.VelocityVectorD;
+        var motionSign = Math.Sign((stationPosition.X * stationVelocity.Y) - (stationPosition.Y * stationVelocity.X));
+        if (motionSign == 0)
+        {
+            motionSign = 1;
+        }
+
+        var signedOffset = NormalizeSignedAngle(shipAngle - stationAngle) * motionSign;
+        if (shipRadius >= stationRadius)
+        {
+            return signedOffset >= -departureAngle && signedOffset <= arrivalAngle;
+        }
+
+        return signedOffset >= -arrivalAngle && signedOffset <= departureAngle;
+    }
+
+    private static void BeginActivationFlash(Ship ship)
+    {
+        ship.Status.ActivationFlashTimeRemainingSeconds = ActivationFlashDurationSeconds;
+    }
+
+    private static double NormalizeSignedAngle(double angle)
+    {
+        angle %= 2d * Math.PI;
+        if (angle > Math.PI)
+        {
+            angle -= 2d * Math.PI;
+        }
+        else if (angle < -Math.PI)
+        {
+            angle += 2d * Math.PI;
+        }
+
+        return angle;
     }
 
     private void RegisterSuccessfulDestination()

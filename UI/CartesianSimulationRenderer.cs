@@ -208,13 +208,24 @@ public class CartesianSimulationRenderer : SimulationRendererBase
 
             var shipColor = !ship.Status.IsControllable
                 ? UncontrolledShipColor
-                : ship.IsSelected ? SelectedShipColor : ActiveShipColor;
+                : ship.IsSelected
+                    ? SelectedShipColor
+                    : ship.Destination is ExitControlAreaDestination
+                        ? ExitDestinationShipColor
+                        : ActiveShipColor;
 
             var separationColor = !ship.Status.IsControllable
                 ? UncontrolledShipColor
                 : ship.Status.IsEncroached ? EncroachedSeparationColor : SafeSeparationColor;
 
             SpriteBatch.DrawRectangle(position.X - (size / 2f), position.Y - (size / 2f), size, size, shipColor, 1.5f);
+
+            if (ShouldDrawActivationFlash(ship))
+            {
+                const float flashRadius = 10f;
+                const float flashThickness = 2f;
+                SpriteBatch.DrawCircle(new CircleF() { Center = position, Radius = flashRadius }, 24, ActivationFlashColor, flashThickness);
+            }
 
             var nodeCount = (ship.ManeuverNode is not null ? 1 : 0) + (ship.NextManeuverNode is not null ? 1 : 0);
             if (nodeCount > 0)
@@ -261,12 +272,15 @@ public class CartesianSimulationRenderer : SimulationRendererBase
                 }
             }
 
-            DrawProjectedSeparationEllipse(
-                center: position,
-                worldRadiusMeters: GameConstants.ShipSepration / 2d,
-                atRadiusMeters: ship.Orbit.PositionVectorD.Length(),
-                color: separationColor,
-                thickness: 1.2f);
+            if (!ship.Status.IsInStationControlArea)
+            {
+                DrawProjectedSeparationEllipse(
+                    center: position,
+                    worldRadiusMeters: GameConstants.ShipSepration / 2d,
+                    atRadiusMeters: ship.Orbit.PositionVectorD.Length(),
+                    color: separationColor,
+                    thickness: 1.2f);
+            }
         }
     }
 

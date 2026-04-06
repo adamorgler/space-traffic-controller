@@ -239,11 +239,22 @@ public class SimulationRenderer : SimulationRendererBase
             }
             else
             {
-                shipColor = ship.IsSelected ? SelectedShipColor : ActiveShipColor;
+                shipColor = ship.IsSelected
+                    ? SelectedShipColor
+                    : ship.Destination is ExitControlAreaDestination
+                        ? ExitDestinationShipColor
+                        : ActiveShipColor;
                 seperationCircleColor = ship.Status.IsEncroached ? EncroachedSeparationColor : SafeSeparationColor;
 
             }
             SpriteBatch.DrawRectangle(position.X - (size / 2), position.Y - (size / 2), size, size, shipColor, 1.5f);
+
+            if (ShouldDrawActivationFlash(ship))
+            {
+                var flashRadius = 10f / Camera.Zoom;
+                var flashThickness = 2f / Camera.Zoom;
+                SpriteBatch.DrawCircle(new CircleF() { Center = position, Radius = flashRadius }, 24, ActivationFlashColor, flashThickness);
+            }
 
             var nodeCount = (ship.ManeuverNode is not null ? 1 : 0) + (ship.NextManeuverNode is not null ? 1 : 0);
             if (nodeCount > 0)
@@ -283,8 +294,11 @@ public class SimulationRenderer : SimulationRendererBase
             }
 
             // seperation circles
-            CircleF seperationCircle = new CircleF() { Center = position, Radius = GameConstants.ShipSepration / 2 / Scale };
-            SpriteBatch.DrawCircle(seperationCircle, 20, seperationCircleColor, 1.5f);
+            if (!ship.Status.IsInStationControlArea)
+            {
+                CircleF seperationCircle = new CircleF() { Center = position, Radius = GameConstants.ShipSepration / 2 / Scale };
+                SpriteBatch.DrawCircle(seperationCircle, 20, seperationCircleColor, 1.5f);
+            }
         }
     }
 
