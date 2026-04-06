@@ -22,10 +22,23 @@ public abstract class SimulationRendererBase
     protected const int Scale = GameConstants.RenderingScale;
 
     // Shared colors for consistent visuals between renderers.
-    protected static readonly Color OrbitDefaultColor = Color.LightGray * 0.6f;
-    protected static readonly Color TargetOrbitColor = Color.Cyan * 0.55f;
-    protected static readonly Color TargetApsisColor = Color.Cyan * 0.75f;
+    protected static readonly Color OrbitDefaultColor = Color.LightGray * 0.8f;
+    protected static readonly Color TargetOrbitColor = Color.Cyan * 0.8f;
+    protected static readonly Color TargetApsisColor = Color.Cyan * 0.8f;
     protected static readonly Color SelectedOrbitColor = Color.White;
+    protected static readonly Color HoverOrbitColor = Color.LightGray * 0.8f;
+    protected static readonly Color HoverPredictedOrbitColor = Color.DarkGray * 0.8f;
+    protected static readonly Color HoverNodeColor = Color.DarkGray;
+    protected static readonly Color ManeuverIndicatorPendingColor = Color.Yellow;
+    protected static readonly Color ManeuverIndicatorConfirmedColor = Color.LimeGreen;
+
+    // Shared maneuver-indicator layout constants.
+    protected const string ManeuverIndicatorLabel = "M";
+    protected const float ManeuverIndicatorScale = 0.8f;
+    protected const float ManeuverIndicatorPadding = 1f;
+    protected const float ManeuverIndicatorCircleRadiusFactor = 0.55f;
+    protected const float ManeuverIndicatorCircleRadiusOffset = 0.75f;
+    protected const float ManeuverIndicatorSpacing = 2f;
 
     protected static readonly Color UncontrolledShipColor = Color.LightGray;
     protected static readonly Color SelectedShipColor = Color.Gold;

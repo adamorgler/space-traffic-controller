@@ -77,6 +77,12 @@ public class CartesianSimulationRenderer : SimulationRendererBase
         DrawStations(gameState.Stations, gameState.SelectedShip);
         DrawShips(gameState.Ships, gameState);
 
+        var hoveredShip = GetHoveredShip(gameState.Ships);
+        if (hoveredShip is not null && !hoveredShip.IsSelected)
+        {
+            DrawHoveredShipPreview(hoveredShip);
+        }
+
         var selectedShip = gameState.SelectedShip;
         var target = gameState.TargetOrbitingObject;
         if (selectedShip is not null && target is not null)
@@ -210,6 +216,51 @@ public class CartesianSimulationRenderer : SimulationRendererBase
 
             SpriteBatch.DrawRectangle(position.X - (size / 2f), position.Y - (size / 2f), size, size, shipColor, 1.5f);
 
+            var nodeCount = (ship.ManeuverNode is not null ? 1 : 0) + (ship.NextManeuverNode is not null ? 1 : 0);
+            if (nodeCount > 0)
+            {
+                var markerFont = Fonts.ManueverNode ?? Fonts.DebugFont;
+                var markerScale = ManeuverIndicatorScale;
+                var markerLabel = ManeuverIndicatorLabel;
+                var textSize = markerFont.MeasureString(markerLabel) * markerScale;
+
+                var atRadiusMeters = Math.Max(1d, ship.Orbit.PositionVectorD.Length());
+                var worldSeparationRadius = GameConstants.ShipSepration / 2d;
+                var drawableHeight = Math.Max(1f, GraphicsDevice.Viewport.Height - TopBuffer - BottomBuffer);
+                var pixelsPerMeterY = drawableHeight / Math.Max(1d, GameState.CentralBody.ControlAltitudeMeters);
+                var pixelsPerMeterX = GraphicsDevice.Viewport.Width / Math.Max(1d, MathHelper.TwoPi * atRadiusMeters);
+                var rx = Math.Max(1f, (float)(worldSeparationRadius * pixelsPerMeterX));
+                var ry = Math.Max(1f, (float)(worldSeparationRadius * pixelsPerMeterY));
+                var markerPadding = ManeuverIndicatorPadding;
+
+                var markerStartPos = position + new Vector2(
+                    rx + markerPadding,
+                    -(ry + markerPadding + textSize.Y));
+
+                var markerCircleRadius = MathF.Max(textSize.X, textSize.Y) * ManeuverIndicatorCircleRadiusFactor + ManeuverIndicatorCircleRadiusOffset;
+                var markerStepX = (markerCircleRadius * 2f) + ManeuverIndicatorSpacing;
+
+                var markerIndex = 0;
+                if (ship.ManeuverNode is not null)
+                {
+                    var markerColor = ship.ManeuverNode.IsConfirmed ? ManeuverIndicatorConfirmedColor : ManeuverIndicatorPendingColor;
+                    var markerPos = markerStartPos + new Vector2(markerStepX * markerIndex, 0f);
+                    var markerCenter = markerPos + (textSize * 0.5f);
+                    SpriteBatch.DrawCircle(new CircleF() { Center = markerCenter, Radius = markerCircleRadius }, 20, markerColor, 1f);
+                    SpriteBatch.DrawString(markerFont, markerLabel, markerPos, markerColor, 0f, Vector2.Zero, markerScale, SpriteEffects.None, 0f);
+                    markerIndex++;
+                }
+
+                if (ship.NextManeuverNode is not null)
+                {
+                    var markerColor = ship.NextManeuverNode.IsConfirmed ? ManeuverIndicatorConfirmedColor : ManeuverIndicatorPendingColor;
+                    var markerPos = markerStartPos + new Vector2(markerStepX * markerIndex, 0f);
+                    var markerCenter = markerPos + (textSize * 0.5f);
+                    SpriteBatch.DrawCircle(new CircleF() { Center = markerCenter, Radius = markerCircleRadius }, 20, markerColor, 1f);
+                    SpriteBatch.DrawString(markerFont, markerLabel, markerPos, markerColor, 0f, Vector2.Zero, markerScale, SpriteEffects.None, 0f);
+                }
+            }
+
             DrawProjectedSeparationEllipse(
                 center: position,
                 worldRadiusMeters: GameConstants.ShipSepration / 2d,
@@ -228,6 +279,64 @@ public class CartesianSimulationRenderer : SimulationRendererBase
 
         var intersectionPos = ProjectPosition(orbit.GetPositionAtAngleD(orbitPos.TrueAnomaly));
         SpriteBatch.DrawCircle(new CircleF() { Center = intersectionPos, Radius = 5f }, 12, Color.LightGray);
+    }
+
+    private Ship? GetHoveredShip(List<Ship> ships)
+    {
+        var mousePos = MouseState.Position.ToVector2();
+        var viewportWidth = Math.Max(1f, GraphicsDevice.Viewport.Width);
+        const float hitRadius = 10f;
+        var hitRadiusSq = hitRadius * hitRadius;
+
+        Ship? hovered = null;
+        var bestDistSq = float.MaxValue;
+        foreach (var ship in ships)
+        {
+            var pos = ProjectPosition(ship.Orbit.PositionVectorD);
+            var dx = Math.Abs(pos.X - mousePos.X);
+            dx = Math.Min(dx, viewportWidth - dx);
+            var dy = pos.Y - mousePos.Y;
+            var distSq = (dx * dx) + (dy * dy);
+            if (distSq <= hitRadiusSq && distSq < bestDistSq)
+            {
+                bestDistSq = distSq;
+                hovered = ship;
+            }
+        }
+
+        return hovered;
+    }
+
+    private void DrawHoveredShipPreview(Ship ship)
+    {
+        DrawOrbit(ship.Orbit, HoverOrbitColor);
+
+        var firstNode = ship.ManeuverNode;
+        if (firstNode is null)
+        {
+            return;
+        }
+
+        var secondBaseOrbit = DrawManeuverNodePreview(firstNode, ship.Orbit);
+        var secondNode = ship.NextManeuverNode;
+        if (secondNode is not null && secondBaseOrbit is not null)
+        {
+            DrawManeuverNodePreview(secondNode, secondBaseOrbit);
+        }
+    }
+
+    private Orbit? DrawManeuverNodePreview(ManeuverNode maneuverNode, Orbit baseOrbit)
+    {
+        var predictedOrbit = maneuverNode.GetPredictedOrbit(baseOrbit);
+        if (predictedOrbit is not null)
+        {
+            DrawOrbit(predictedOrbit, HoverPredictedOrbitColor);
+        }
+
+        var nodePosition = ProjectPosition(baseOrbit.GetPositionAtAngleD(maneuverNode.TrueAnomaly));
+        SpriteBatch.DrawCircle(new CircleF() { Center = nodePosition, Radius = UIConstants.NodeRadius }, 16, HoverNodeColor, UIConstants.NodeThickness);
+
+        return predictedOrbit;
     }
 
     private Vector2 GetProjectedMouseWorldPosition()
