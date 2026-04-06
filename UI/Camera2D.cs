@@ -61,6 +61,17 @@ public class Camera2D
         }
     }
 
+    public void SnapToPose(Vector2 position, float rotation, float zoom = 1f)
+    {
+        _desiredPosition = position;
+        _desiredRotation = rotation;
+        _desiredZoom = zoom;
+        Position = position;
+        Rotation = rotation;
+        Zoom = zoom;
+        _isTransitioning = false;
+    }
+
     public void StartSelectionTransition(float? durationSeconds = null)
     {
         _transitionStartPosition = Position;

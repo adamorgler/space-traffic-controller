@@ -10,7 +10,7 @@ using System.Runtime.CompilerServices;
 
 namespace SpaceTrafficController.Core;
 
-public class GameState
+public partial class GameState
 {
     public enum ViewMode { Default, Projected }
     public ViewMode CurrentViewMode { get; set; } = ViewMode.Projected;
@@ -456,6 +456,7 @@ public class GameState
             Destination = new StationDestination(station),
         };
 
+        BeginActivationFlash(ship);
         OrbitingObjects.Add(ship);
     }
 
@@ -497,6 +498,7 @@ public class GameState
         ship.Status.IsLockedUntilOutsideStationControlArea = true;
         ship.Status.IsControllable = false;
 
+        BeginActivationFlash(ship);
         OrbitingObjects.Add(ship);
     }
 

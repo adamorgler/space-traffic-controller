@@ -16,6 +16,7 @@ public class InputHandler
 {
     private readonly Camera2D Camera;
     private readonly GameState GameState;
+    private readonly Action SaveAndExitAction;
     private KeyboardState KeyboardState;
     private MouseState MouseState;
     private KeyboardState PrevKeyboardState;
@@ -39,11 +40,12 @@ public class InputHandler
 
     private readonly UIRenderer UIRenderer;
 
-    public InputHandler(Camera2D camera, GameState gameState, UIRenderer uiRenderer)
+    public InputHandler(Camera2D camera, GameState gameState, UIRenderer uiRenderer, Action saveAndExitAction)
     {
         Camera = camera;
         GameState = gameState;
         UIRenderer = uiRenderer;
+        SaveAndExitAction = saveAndExitAction;
     }
 
     public void Update(GameTime gameTime)
@@ -51,26 +53,40 @@ public class InputHandler
         KeyboardState = Keyboard.GetState();
         MouseState = Mouse.GetState();
 
-        UpdateHohmannTransferMousePreview();
+        var pauseToggled = false;
+
+        if (KeyboardState.IsKeyDown(Keys.Escape) && PrevKeyboardState.IsKeyUp(Keys.Escape))
+        {
+            GameState.TogglePause();
+            pauseToggled = true;
+        }
 
         if (KeyboardState.IsKeyDown(Keys.Space) && PrevKeyboardState.IsKeyUp(Keys.Space))
         {
             GameState.TogglePause();
+            pauseToggled = true;
         }
 
-        var transferShortcutHandled = HandleTransferModeShortcuts();
-        if (!transferShortcutHandled)
+        if (pauseToggled || GameState.IsPaused)
         {
-            HandleManeuverAcceptShortcut();
-        }
+            if (GameState.IsPaused)
+            {
+                HandlePausedUiClick();
+            }
 
-        if (GameState.IsPaused)
-        {
-            HandlePausedUiClick();
             ClearTransientInputState();
             PrevKeyboardState = KeyboardState;
             PrevMouseState = MouseState;
             return;
+        }
+
+        UpdateHohmannTransferMousePreview();
+
+        var transferShortcutHandled = HandleTransferModeShortcuts();
+        if (!transferShortcutHandled)
+        {
+            HandleGameplayActionShortcuts();
+            HandleManeuverAcceptShortcut();
         }
 
         HandleCameraMovement(gameTime);
@@ -150,6 +166,63 @@ public class InputHandler
         }
 
         return false;
+    }
+
+    private void HandleGameplayActionShortcuts()
+    {
+        if (GameState.IsHohmannTransferDialogOpen)
+        {
+            return;
+        }
+
+        var ship = GameState.SelectedShip;
+        if (ship is null)
+        {
+            return;
+        }
+
+        if (KeyboardState.IsKeyDown(Keys.Home) && PrevKeyboardState.IsKeyUp(Keys.Home))
+        {
+            ApplyUIAction(new UIButtonResult(UIAction.HohmannOpenDialogApsis));
+            return;
+        }
+
+        if (KeyboardState.IsKeyDown(Keys.End) && PrevKeyboardState.IsKeyUp(Keys.End))
+        {
+            ApplyUIAction(new UIButtonResult(UIAction.HohmannOpenDialogImmediate));
+            return;
+        }
+
+        if (KeyboardState.IsKeyDown(Keys.Insert) && PrevKeyboardState.IsKeyUp(Keys.Insert))
+        {
+            if (ship.Destination is ExitControlAreaDestination)
+            {
+                ApplyUIAction(new UIButtonResult(UIAction.OutboundSetExitManeuverApsis));
+            }
+
+            return;
+        }
+
+        if (KeyboardState.IsKeyDown(Keys.Delete) && PrevKeyboardState.IsKeyUp(Keys.Delete))
+        {
+            if (ship.Destination is ExitControlAreaDestination)
+            {
+                ApplyUIAction(new UIButtonResult(UIAction.OutboundSetExitManeuverImmediate));
+            }
+
+            return;
+        }
+
+        if (KeyboardState.IsKeyDown(Keys.PageUp) && PrevKeyboardState.IsKeyUp(Keys.PageUp))
+        {
+            ApplyUIAction(new UIButtonResult(UIAction.CircularizeAtAP));
+            return;
+        }
+
+        if (KeyboardState.IsKeyDown(Keys.PageDown) && PrevKeyboardState.IsKeyUp(Keys.PageDown))
+        {
+            ApplyUIAction(new UIButtonResult(UIAction.CircularizeAtPE));
+        }
     }
 
     private void HandleRightClick()
@@ -567,6 +640,8 @@ public class InputHandler
         var allowedWhenPaused = result.Action switch
         {
             UIAction.PauseToggle => true,
+            UIAction.PauseNewGame => true,
+            UIAction.PauseExit => true,
             UIAction.WarpDecrease => true,
             UIAction.WarpIncrease => true,
             UIAction.ToggleOrbitsVisibility => true,
@@ -603,6 +678,12 @@ public class InputHandler
                 return;
             case UIAction.PauseToggle:
                 GameState.TogglePause();
+                return;
+            case UIAction.PauseNewGame:
+                StartNewGame();
+                return;
+            case UIAction.PauseExit:
+                ExitGame();
                 return;
             case UIAction.ToggleOrbitsVisibility:
                 GameState.ShowAllOrbits = !GameState.ShowAllOrbits;
@@ -787,6 +868,26 @@ public class InputHandler
             ProgradeDeltaV = vCirc - vCurrent,
         };
         ship.NextManeuverNode = null;
+    }
+
+    private void StartNewGame()
+    {
+        ClearTransientInputState();
+        DraggedNode = null;
+        CurrentManeuverDrag = ManeuverDragType.None;
+        _prevSelectedOrbitingObject = null;
+        _cameraFollowSelected = false;
+        _hasCameraPreFocusPose = false;
+        _hasDefaultViewCameraPose = false;
+        GameState.TargetOrbitingObject = null;
+        Camera.SnapToPose(Vector2.Zero, 0f, 1f);
+        GameState.Init();
+    }
+
+    private void ExitGame()
+    {
+        ClearTransientInputState();
+        SaveAndExitAction?.Invoke();
     }
 
     private void ApplyQuickHohmannTransferToAltitude(Ship ship)

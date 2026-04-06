@@ -17,6 +17,7 @@ namespace SpaceTrafficController
         private SpriteBatch SpriteBatch;
         private Camera2D Camera;
         private InputHandler InputHandler;
+        private bool _explicitExitRequested;
 
         private GameState GameState;
         private SimulationRenderer SimulationRenderer;
@@ -31,13 +32,20 @@ namespace SpaceTrafficController
             IsMouseVisible = true;
 
             GameState = new GameState();
+            Exiting += (_, _) =>
+            {
+                if (!_explicitExitRequested)
+                {
+                    GameState.SaveAutoSave();
+                }
+            };
         }
 
         protected override void Initialize()
         {
             SetWindowToNearlyFullscreen();
 
-            GameState.Init();
+            GameState.InitOrLoadAutoSave();
 
             base.Initialize();
         }
@@ -49,7 +57,7 @@ namespace SpaceTrafficController
             SimulationRenderer = new SimulationRenderer(GraphicsDevice ,SpriteBatch, Camera);
             CartesianSimulationRenderer = new CartesianSimulationRenderer(GraphicsDevice, SpriteBatch, Camera);
             UIRenderer = new UIRenderer(GraphicsDevice, SpriteBatch);
-            InputHandler = new InputHandler(Camera, GameState, UIRenderer);
+            InputHandler = new InputHandler(Camera, GameState, UIRenderer, SaveAndExit);
 
             Fonts.DebugFont = Content.Load<SpriteFont>("DebugFont");
             Fonts.ManueverNode = Content.Load<SpriteFont>("ManueverNode");
@@ -58,7 +66,7 @@ namespace SpaceTrafficController
 
         protected override void Update(GameTime gameTime)
         {
-            if (GamePad.GetState(PlayerIndex.One).Buttons.Back == ButtonState.Pressed || Keyboard.GetState().IsKeyDown(Keys.Escape))
+            if (GamePad.GetState(PlayerIndex.One).Buttons.Back == ButtonState.Pressed)
                 Exit();
 
             GameState.Update(gameTime);
@@ -66,6 +74,13 @@ namespace SpaceTrafficController
             Camera.Update(gameTime);
 
             base.Update(gameTime);
+        }
+
+        private void SaveAndExit()
+        {
+            _explicitExitRequested = true;
+            GameState.SaveAutoSave();
+            Exit();
         }
 
         protected override void Draw(GameTime gameTime)

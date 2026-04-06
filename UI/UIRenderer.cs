@@ -9,7 +9,7 @@ using System.Collections.Generic;
 
 namespace SpaceTrafficController.UI;
 
-public enum UIAction { None, ManeuverProgradeStep, ManeuverNormalStep, CircularizeAtPE, CircularizeAtAP, HohmannOpenDialogApsis, HohmannOpenDialogImmediate, HohmannAltitude10Decrease, HohmannAltitude10Increase, HohmannAltitude50Decrease, HohmannAltitude50Increase, HohmannAltitude100Decrease, HohmannAltitude100Increase, HohmannConfirm, HohmannCancel, ManeuverAccept, ManeuverCancel, WarpDecrease, WarpIncrease, PauseToggle, CameraFocusSelected, CameraResetView, ToggleOrbitsVisibility, ToggleShowManeuvers, ToggleViewMode, ToggleProjectedStationCenter, OutboundSetExitManeuverApsis, OutboundSetExitManeuverImmediate }
+public enum UIAction { None, ManeuverProgradeStep, ManeuverNormalStep, CircularizeAtPE, CircularizeAtAP, HohmannOpenDialogApsis, HohmannOpenDialogImmediate, HohmannAltitude10Decrease, HohmannAltitude10Increase, HohmannAltitude50Decrease, HohmannAltitude50Increase, HohmannAltitude100Decrease, HohmannAltitude100Increase, HohmannConfirm, HohmannCancel, ManeuverAccept, ManeuverCancel, WarpDecrease, WarpIncrease, PauseToggle, PauseNewGame, PauseExit, CameraFocusSelected, CameraResetView, ToggleOrbitsVisibility, ToggleShowManeuvers, ToggleViewMode, ToggleProjectedStationCenter, OutboundSetExitManeuverApsis, OutboundSetExitManeuverImmediate }
 public record UIButtonResult(UIAction Action, double StepValue = 0d);
 
 public class UIRenderer
@@ -35,20 +35,32 @@ public class UIRenderer
         var ms = Mouse.GetState();
         _mousePos = ms.Position.ToVector2();
         _mousePressed = ms.LeftButton == ButtonState.Pressed;
+
+        if (gameState.IsPaused)
+        {
+            DrawPausedOverlay(gameState);
+            return;
+        }
+
         DrawTimeWarpPanel(gameState);
         DrawOrbitVisibilityPanel(gameState);
         DrawSelectionPanel(gameState);
         DrawManeuverNodePanel(gameState);
-        DrawPausedOverlay(gameState);
         DrawHohmannTransferDialog(gameState);
         DrawHohmannMouseAltitudeLabel(gameState);
     }
 
     public UIButtonResult? GetActionAt(Vector2 screenPos)
     {
-        foreach (var (rect, result) in _buttons)
+        for (int i = _buttons.Count - 1; i >= 0; i--)
+        {
+            var (rect, result) = _buttons[i];
             if (Hits(rect, screenPos))
+            {
                 return result;
+            }
+        }
+
         return null;
     }
 
@@ -175,20 +187,46 @@ public class UIRenderer
         var font = Fonts.PausedFont ?? Fonts.DebugFont;
         const string pausedText = "PAUSED";
         const float textScale = 1f;
+        const float buttonWidth = 240f;
+        const float buttonHeight = 34f;
+        const float buttonGap = 12f;
+        const float panelPadding = 24f;
 
         var textSize = font.MeasureString(pausedText) * textScale;
         var center = new Vector2(GraphicsDevice.Viewport.Width / 2f, GraphicsDevice.Viewport.Height / 2f);
-        var textPos = center - (textSize / 2f);
-
-        // Subtle center-screen dark backing for readability.
-        var overlayWidth = textSize.X + 80f;
-        var overlayHeight = textSize.Y + 30f;
+        var totalButtonHeight = (buttonHeight * 3f) + (buttonGap * 2f);
+        var overlayWidth = Math.Max(textSize.X + 80f, buttonWidth + (panelPadding * 2f));
+        var overlayHeight = textSize.Y + totalButtonHeight + (panelPadding * 3f);
         var overlayRect = new RectangleF(center.X - overlayWidth / 2f, center.Y - overlayHeight / 2f, overlayWidth, overlayHeight);
-        SpriteBatch.FillRectangle(overlayRect, new Color(0, 0, 0, 120));
+        var textPos = new Vector2(center.X - (textSize.X / 2f), overlayRect.Y + panelPadding);
 
-        // Shadow + main text for stronger presence.
+        SpriteBatch.FillRectangle(0f, 0f, GraphicsDevice.Viewport.Width, GraphicsDevice.Viewport.Height, new Color(0, 0, 0, 165));
+        SpriteBatch.FillRectangle(overlayRect, new Color(8, 8, 12, 220));
+        SpriteBatch.DrawRectangle(overlayRect, Color.Gray * 0.7f, 1f);
+
         SpriteBatch.DrawString(font, pausedText, textPos + new Vector2(4f, 4f), Color.Black * 0.9f, 0f, Vector2.Zero, textScale, SpriteEffects.None, 0f);
         SpriteBatch.DrawString(font, pausedText, textPos, Color.OrangeRed, 0f, Vector2.Zero, textScale, SpriteEffects.None, 0f);
+
+        var buttonX = center.X - (buttonWidth / 2f);
+        var firstButtonY = textPos.Y + textSize.Y + panelPadding;
+
+        DrawPanelButton(
+            new RectangleF(buttonX, firstButtonY, buttonWidth, buttonHeight),
+            "Resume",
+            new UIButtonResult(UIAction.PauseToggle),
+            new Color(30, 80, 30));
+
+        DrawPanelButton(
+            new RectangleF(buttonX, firstButtonY + buttonHeight + buttonGap, buttonWidth, buttonHeight),
+            "New Game",
+            new UIButtonResult(UIAction.PauseNewGame),
+            new Color(40, 60, 110));
+
+        DrawPanelButton(
+            new RectangleF(buttonX, firstButtonY + (buttonHeight + buttonGap) * 2f, buttonWidth, buttonHeight),
+            "Exit",
+            new UIButtonResult(UIAction.PauseExit),
+            new Color(100, 35, 35));
     }
 
     // ── Selection panel (top-right) — shows ship or station info
