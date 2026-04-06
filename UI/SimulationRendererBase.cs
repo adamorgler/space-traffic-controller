@@ -8,6 +8,7 @@ using SpaceTrafficController.Utilities;
 using SpaceTrafficController.Simulation;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace SpaceTrafficController.UI;
 
@@ -51,17 +52,12 @@ public abstract class SimulationRendererBase
     protected static readonly Color SelectedStationColor = Color.Gold;
     protected static readonly Color StationColor = Color.AliceBlue;
     protected static readonly Color ControlAreaColor = Color.LightSkyBlue;
+    protected static readonly Color ControlAreaLaneColor = Color.LightSkyBlue * 0.3f;
     protected static readonly Color ArrivalArrowColor = Color.LimeGreen;
     protected static readonly Color DepartureArrowColor = Color.Red;
 
-    protected static readonly Color[] ClosestApproachColors = new[] { Color.Purple, Color.Orange };
-    protected static readonly Color ClosestApproachDashColor = Color.White;
-
-    protected const int ClosestApproachCoarseSamples = 120;
-    protected const int ClosestApproachFineSamples = 40;
-    protected const double ClosestApproachFineWindow = 0.15d;
-    protected const double ClosestApproachExclusionWindow = 0.6d;
-    protected const double ClosestApproachLineThresholdMeters = 5000d;
+    protected const double ControlAreaLaneCenterSpacingMeters = GameConstants.ControlLaneWidthMeters;
+    protected const double ControlAreaLaneHalfWidthMeters = GameConstants.ControlLaneHalfWidthMeters;
     protected const double ActivationFlashBlinkSeconds = 0.2d;
 
     protected SimulationRendererBase(GraphicsDevice graphicsDevice, SpriteBatch spriteBatch, Camera2D camera)
@@ -102,60 +98,216 @@ public abstract class SimulationRendererBase
         return (phase & 1) == 0;
     }
 
-    protected List<List<Vector2>> BuildStationControlPaths(
-        DVector2 stationPosition,
-        double arrivalExtent,
-        double departureExtent,
-        double halfAltitude)
+    protected List<List<Vector2>> BuildStationControlPaths(Station station)
     {
+        var stationPosition = station?.Orbit?.PositionVectorD ?? default;
         var orbitRadius = stationPosition.Length();
-        if (orbitRadius <= 0d)
+        if (orbitRadius <= 0d || station is null)
         {
             return new List<List<Vector2>>();
         }
 
         var centerAngle = Math.Atan2(stationPosition.Y, stationPosition.X);
-        var arrivalAngle = Math.Min(arrivalExtent / orbitRadius, Math.PI - 1e-4d);
-        var departureAngle = Math.Min(departureExtent / orbitRadius, Math.PI - 1e-4d);
-        var outerRadius = orbitRadius + halfAltitude;
-        var innerRadius = Math.Max(1d, orbitRadius - halfAltitude);
-        var upperSegments = Math.Max(12, (int)Math.Ceiling((arrivalAngle + departureAngle) / (5d.ToRadians())));
-        var lowerSegments = Math.Max(12, (int)Math.Ceiling((arrivalAngle + departureAngle) / (5d.ToRadians())));
-        var positiveConnectorSegments = Math.Max(4, (int)Math.Ceiling(Math.Abs(arrivalAngle - departureAngle) / (5d.ToRadians())));
-        var negativeConnectorSegments = Math.Max(4, (int)Math.Ceiling(Math.Abs(arrivalAngle - departureAngle) / (5d.ToRadians())));
-
-        return new List<List<Vector2>>
+        var departureAngle = Math.Min(station.ControlAreaDepartureExtentMeters / orbitRadius, Math.PI - 1e-4d);
+        var stationLowerRadius = Math.Max(1d, orbitRadius - GameConstants.ControlLaneHalfWidthMeters);
+        var stationUpperRadius = orbitRadius + GameConstants.ControlLaneHalfWidthMeters;
+        var rectangles = new List<(double MinX, double MaxX, double MinY, double MaxY)>
         {
-            BuildArcPath(outerRadius, centerAngle - departureAngle, centerAngle + arrivalAngle, upperSegments),
-            BuildArcPath(innerRadius, centerAngle - arrivalAngle, centerAngle + departureAngle, lowerSegments),
-            BuildArcPath(orbitRadius, centerAngle + departureAngle, centerAngle + arrivalAngle, positiveConnectorSegments),
-            BuildArcPath(orbitRadius, centerAngle - arrivalAngle, centerAngle - departureAngle, negativeConnectorSegments),
-            BuildRadialPath(centerAngle + arrivalAngle, orbitRadius, outerRadius),
-            BuildRadialPath(centerAngle + departureAngle, innerRadius, orbitRadius),
-            BuildRadialPath(centerAngle - departureAngle, orbitRadius, outerRadius),
-            BuildRadialPath(centerAngle - arrivalAngle, innerRadius, orbitRadius),
+            (-departureAngle, departureAngle, stationLowerRadius, stationUpperRadius),
         };
 
-        List<Vector2> BuildArcPath(double radius, double startAngle, double endAngle, int segmentCount)
+        var approachLaneCount = ControlLaneUtils.GetStationApproachLaneCount(station);
+        for (int laneDepth = 1; laneDepth <= approachLaneCount; laneDepth++)
         {
-            var points = new List<Vector2>(segmentCount + 1);
-            for (int i = 0; i <= segmentCount; i++)
-            {
-                var t = (double)i / segmentCount;
-                var angle = startAngle + ((endAngle - startAngle) * t);
-                points.Add(ProjectPolarPoint(radius, angle));
-            }
+            var arrivalAngle = Math.Min(ControlLaneUtils.GetStationApproachExtentMeters(station, laneDepth) / orbitRadius, Math.PI - 1e-4d);
+            var previousUpperRadius = orbitRadius + GameConstants.ControlLaneHalfWidthMeters + ((laneDepth - 1) * GameConstants.ControlLaneWidthMeters);
+            var currentUpperRadius = previousUpperRadius + GameConstants.ControlLaneWidthMeters;
+            var currentLowerRadius = Math.Max(1d, orbitRadius - GameConstants.ControlLaneHalfWidthMeters - (laneDepth * GameConstants.ControlLaneWidthMeters));
+            var previousLowerRadius = Math.Max(1d, currentLowerRadius + GameConstants.ControlLaneWidthMeters);
 
-            return points;
+            rectangles.Add((laneDepth == 1 ? -departureAngle : 0d, arrivalAngle, previousUpperRadius, currentUpperRadius));
+            rectangles.Add((-arrivalAngle, laneDepth == 1 ? departureAngle : 0d, currentLowerRadius, previousLowerRadius));
         }
 
-        List<Vector2> BuildRadialPath(double angle, double startRadius, double endRadius)
+        if (rectangles.Count == 0)
         {
-            return new List<Vector2>
+            return new List<List<Vector2>>();
+        }
+
+        var xCoordinates = new List<double>();
+        var yCoordinates = new List<double>();
+        foreach (var rectangle in rectangles)
+        {
+            xCoordinates.Add(rectangle.MinX);
+            xCoordinates.Add(rectangle.MaxX);
+            yCoordinates.Add(rectangle.MinY);
+            yCoordinates.Add(rectangle.MaxY);
+        }
+
+        xCoordinates.Sort();
+        yCoordinates.Sort();
+        xCoordinates = xCoordinates.Distinct().ToList();
+        yCoordinates = yCoordinates.Distinct().ToList();
+
+        if (xCoordinates.Count < 2 || yCoordinates.Count < 2)
+        {
+            return new List<List<Vector2>>();
+        }
+
+        var filled = new bool[xCoordinates.Count - 1, yCoordinates.Count - 1];
+        for (int xIndex = 0; xIndex < xCoordinates.Count - 1; xIndex++)
+        {
+            var sampleX = (xCoordinates[xIndex] + xCoordinates[xIndex + 1]) / 2d;
+            for (int yIndex = 0; yIndex < yCoordinates.Count - 1; yIndex++)
             {
-                ProjectPolarPoint(startRadius, angle),
-                ProjectPolarPoint(endRadius, angle),
-            };
+                var sampleY = (yCoordinates[yIndex] + yCoordinates[yIndex + 1]) / 2d;
+                foreach (var rectangle in rectangles)
+                {
+                    if (sampleX >= rectangle.MinX && sampleX <= rectangle.MaxX && sampleY >= rectangle.MinY && sampleY <= rectangle.MaxY)
+                    {
+                        filled[xIndex, yIndex] = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        var edges = new Dictionary<(int X, int Y), List<(int X, int Y)>>();
+
+        void AddEdge((int X, int Y) start, (int X, int Y) end)
+        {
+            if (!edges.TryGetValue(start, out var nextVertices))
+            {
+                nextVertices = new List<(int X, int Y)>();
+                edges[start] = nextVertices;
+            }
+
+            nextVertices.Add(end);
+        }
+
+        for (int xIndex = 0; xIndex < xCoordinates.Count - 1; xIndex++)
+        {
+            for (int yIndex = 0; yIndex < yCoordinates.Count - 1; yIndex++)
+            {
+                if (!filled[xIndex, yIndex])
+                {
+                    continue;
+                }
+
+                if (yIndex == yCoordinates.Count - 2 || !filled[xIndex, yIndex + 1])
+                {
+                    AddEdge((xIndex, yIndex + 1), (xIndex + 1, yIndex + 1));
+                }
+
+                if (xIndex == xCoordinates.Count - 2 || !filled[xIndex + 1, yIndex])
+                {
+                    AddEdge((xIndex + 1, yIndex + 1), (xIndex + 1, yIndex));
+                }
+
+                if (yIndex == 0 || !filled[xIndex, yIndex - 1])
+                {
+                    AddEdge((xIndex + 1, yIndex), (xIndex, yIndex));
+                }
+
+                if (xIndex == 0 || !filled[xIndex - 1, yIndex])
+                {
+                    AddEdge((xIndex, yIndex), (xIndex, yIndex + 1));
+                }
+            }
+        }
+
+        var paths = new List<List<Vector2>>();
+        while (true)
+        {
+            var remainingEdge = edges.FirstOrDefault(entry => entry.Value.Count > 0);
+            if (remainingEdge.Value is null || remainingEdge.Value.Count == 0)
+            {
+                break;
+            }
+
+            var startVertex = remainingEdge.Key;
+            var currentVertex = startVertex;
+            var pathVertices = new List<(int X, int Y)> { startVertex };
+
+            while (edges.TryGetValue(currentVertex, out var nextVertices) && nextVertices.Count > 0)
+            {
+                var nextVertex = nextVertices[0];
+                nextVertices.RemoveAt(0);
+                pathVertices.Add(nextVertex);
+                currentVertex = nextVertex;
+
+                if (currentVertex == startVertex)
+                {
+                    break;
+                }
+            }
+
+            if (pathVertices.Count < 2)
+            {
+                continue;
+            }
+
+            var points = new List<Vector2>();
+            for (int i = 0; i < pathVertices.Count - 1; i++)
+            {
+                var segmentStartVertex = pathVertices[i];
+                var segmentEndVertex = pathVertices[i + 1];
+                var startAngle = centerAngle + xCoordinates[segmentStartVertex.X];
+                var endAngle = centerAngle + xCoordinates[segmentEndVertex.X];
+                var startRadius = yCoordinates[segmentStartVertex.Y];
+                var endRadius = yCoordinates[segmentEndVertex.Y];
+
+                if (segmentStartVertex.Y == segmentEndVertex.Y)
+                {
+                    var segmentCount = Math.Max(1, (int)Math.Ceiling(Math.Abs(endAngle - startAngle) / (5d.ToRadians())));
+                    for (int segmentIndex = 0; segmentIndex <= segmentCount; segmentIndex++)
+                    {
+                        if (points.Count > 0 && segmentIndex == 0)
+                        {
+                            continue;
+                        }
+
+                        var t = (double)segmentIndex / segmentCount;
+                        var angle = startAngle + ((endAngle - startAngle) * t);
+                        points.Add(ProjectPolarPoint(startRadius, angle));
+                    }
+                }
+                else
+                {
+                    if (points.Count == 0)
+                    {
+                        points.Add(ProjectPolarPoint(startRadius, startAngle));
+                    }
+
+                    points.Add(ProjectPolarPoint(endRadius, endAngle));
+                }
+            }
+
+            paths.Add(points);
+        }
+
+        return paths;
+    }
+
+    protected static IEnumerable<double> EnumeratePlanetControlLaneEdgeAltitudes(double controlAltitudeMeters, double atmosphereTopAltitudeMeters)
+    {
+        if (controlAltitudeMeters <= ControlAreaLaneHalfWidthMeters)
+        {
+            yield break;
+        }
+
+        var atmosphereTop = Math.Max(0d, atmosphereTopAltitudeMeters);
+
+        // Lane centers are spaced every 50 km from the surface, so lane boundaries are
+        // at 25 km, 75 km, 125 km, ... within the planet control area.
+        for (var edgeAltitude = ControlAreaLaneHalfWidthMeters; edgeAltitude < controlAltitudeMeters - 1d; edgeAltitude += ControlAreaLaneCenterSpacingMeters)
+        {
+            if (edgeAltitude <= atmosphereTop)
+            {
+                continue;
+            }
+
+            yield return edgeAltitude;
         }
     }
 

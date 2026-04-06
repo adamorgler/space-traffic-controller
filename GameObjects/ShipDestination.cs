@@ -43,21 +43,23 @@ public sealed class StationDestination : ShipDestination
             return false;
         }
 
-        var stationPosition = Station.Orbit.PositionVectorD;
-        var stationRadius = stationPosition.Length();
-        if (stationRadius <= 0d)
+        if (!ControlLaneUtils.IsInsideStationControlArea(Station, ship.PositionD))
         {
             return false;
         }
 
-        var halfAltitude = Station.ControlAreaHalfAltitudeMeters;
-        var arrivalExtent = Station.ControlAreaArrivalExtentMeters;
-        var departureExtent = Station.ControlAreaDepartureExtentMeters;
-        var innerRadius = Math.Max(1d, stationRadius - halfAltitude);
-        var outerRadius = stationRadius + halfAltitude;
-        var arrivalAngle = arrivalExtent / stationRadius;
-        var departureAngle = departureExtent / stationRadius;
+        if (!ControlLaneUtils.TryGetRelativeStationLaneIndex(Station, ship.PositionD, out var relativeLaneIndex, out var stationRadius, out _))
+        {
+            return false;
+        }
 
+        // Station lane and departure-side buffers are not valid arrival lanes.
+        if (relativeLaneIndex == 0)
+        {
+            return false;
+        }
+
+        var stationPosition = Station.Orbit.PositionVectorD;
         var stationAngle = Math.Atan2(stationPosition.Y, stationPosition.X);
         var stationVelocity = Station.Orbit.VelocityVectorD;
         double motionSign = Math.Sign(Cross(stationPosition, stationVelocity));
@@ -66,115 +68,17 @@ public sealed class StationDestination : ShipDestination
             motionSign = 1d;
         }
 
-        var previousRadius = ship.PreviousPositionD.Length();
-        var currentRadius = ship.PositionD.Length();
-
-        var previousSignedOffset = GetSignedOffset(ship.PreviousPositionD, stationAngle, motionSign);
-        var currentSignedOffset = GetSignedOffset(ship.PositionD, stationAngle, motionSign);
-
-        var isCurrentlyInsideControlArea = IsInsideControlArea(
-            currentRadius,
-            currentSignedOffset,
-            stationRadius,
-            innerRadius,
-            outerRadius,
-            arrivalAngle,
-            departureAngle);
-
-        if (!isCurrentlyInsideControlArea)
-        {
-            return false;
-        }
-
-        if (IsFrontArrivalSide(currentRadius, stationRadius, currentSignedOffset)
-            && IsOrbitCompatibleWithFrontArrival(ship, Station, currentRadius))
-        {
-            return true;
-        }
-
-        if (IsRearArrivalSide(currentRadius, stationRadius, currentSignedOffset)
-            && IsOrbitCompatibleWithRearArrival(ship, Station, currentRadius))
-        {
-            return true;
-        }
-
-        var wasWithinRadiusBand = IsWithinRadiusBand(previousRadius, innerRadius, outerRadius);
-
-        var enteredFromFront = wasWithinRadiusBand
-            && previousSignedOffset > arrivalAngle
-            && currentSignedOffset <= arrivalAngle;
-        if (enteredFromFront)
-        {
-            return IsFrontArrivalSide(currentRadius, stationRadius, currentSignedOffset)
-                && IsOrbitCompatibleWithFrontArrival(ship, Station, currentRadius);
-        }
-
-        var enteredFromRear = wasWithinRadiusBand
-            && previousSignedOffset < -arrivalAngle
-            && currentSignedOffset >= -arrivalAngle;
-        if (enteredFromRear)
-        {
-            return IsRearArrivalSide(currentRadius, stationRadius, currentSignedOffset)
-                && IsOrbitCompatibleWithRearArrival(ship, Station, currentRadius);
-        }
-
-        return false;
-    }
-
-    private static bool IsFrontArrivalSide(double currentRadius, double stationRadius, double currentSignedOffset)
-    {
-        return currentRadius > stationRadius && currentSignedOffset >= 0d;
-    }
-
-    private static bool IsRearArrivalSide(double currentRadius, double stationRadius, double currentSignedOffset)
-    {
-        return currentRadius < stationRadius && currentSignedOffset <= 0d;
-    }
-
-    private static bool IsInsideControlArea(
-        double currentRadius,
-        double currentSignedOffset,
-        double stationRadius,
-        double innerRadius,
-        double outerRadius,
-        double arrivalAngle,
-        double departureAngle)
-    {
-        if (!IsWithinRadiusBand(currentRadius, innerRadius, outerRadius))
-        {
-            return false;
-        }
-
-        if (currentRadius >= stationRadius)
-        {
-            return currentSignedOffset >= -departureAngle
-                && currentSignedOffset <= arrivalAngle;
-        }
-
-        return currentSignedOffset >= -arrivalAngle
-            && currentSignedOffset <= departureAngle;
-    }
-
-    private static bool IsOrbitCompatibleWithFrontArrival(Ship ship, Station station, double currentRadius)
-    {
-        var stationOrbitRadius = Core.GameState.CentralBody.Radius + station.Orbit.Periapsis;
-        var upperBound = stationOrbitRadius + station.ControlAreaHalfAltitudeMeters;
+        var signedOffset = GetSignedOffset(ship.PositionD, stationAngle, motionSign);
         var radialVelocity = GetRadialVelocity(ship);
 
-        return currentRadius >= stationOrbitRadius
-            && currentRadius <= upperBound
-            && radialVelocity <= 0d;
-    }
+        if (relativeLaneIndex > 0)
+        {
+            var arrivalAngle = ControlLaneUtils.GetStationApproachExtentMeters(Station, relativeLaneIndex) / stationRadius;
+            return signedOffset >= 0d && signedOffset <= arrivalAngle && radialVelocity <= 0d;
+        }
 
-    private static bool IsOrbitCompatibleWithRearArrival(Ship ship, Station station, double currentRadius)
-    {
-        var stationOrbitRadius = Core.GameState.CentralBody.Radius + station.Orbit.Periapsis;
-        var lowerBound = stationOrbitRadius - station.ControlAreaHalfAltitudeMeters;
-        var radialVelocity = GetRadialVelocity(ship);
-
-        return currentRadius >= lowerBound
-            && currentRadius <= stationOrbitRadius
-            && radialVelocity >= 0d;
+        var rearArrivalAngle = ControlLaneUtils.GetStationApproachExtentMeters(Station, relativeLaneIndex) / stationRadius;
+        return signedOffset <= 0d && signedOffset >= -rearArrivalAngle && radialVelocity >= 0d;
     }
 
     private static double GetRadialVelocity(Ship ship)
@@ -194,11 +98,6 @@ public sealed class StationDestination : ShipDestination
     {
         var shipAngle = Math.Atan2(shipPosition.Y, shipPosition.X);
         return NormalizeSignedAngle(shipAngle - stationAngle) * motionSign;
-    }
-
-    private static bool IsWithinRadiusBand(double radius, double innerRadius, double outerRadius)
-    {
-        return radius >= innerRadius && radius <= outerRadius;
     }
 
     private static double NormalizeSignedAngle(double angle)

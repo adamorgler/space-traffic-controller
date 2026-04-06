@@ -20,12 +20,10 @@ public partial class GameState
     private const double ScorePenaltyPerMistake = 1d;
     private const int MaxMultiplier = 8;
     private const double ArrivalEdgeBufferMeters = 15e3;
-    private const double ArrivalLaneOffsetMeters = 50e3;
     private const double ArrivalSpawnInnerBufferMeters = 25e3;
     private const double DepartureDriftOffsetMeters = 100e3;
     private const double DepartureLaneSpawnBufferMeters = 30e3;
     private const double InboundExitOvershootMeters = 250e3;
-    private const double InboundPeriapsisRandomRangeMeters = 450e3;
     private const double HighEllipseSpawnChance = 0.8d;
     private const double MinSpawnAltitudeAboveAtmosphereBufferMeters = 25e3;
     private const double DepartureSpawnControlAreaDepthFactor = 0.2d;
@@ -54,6 +52,8 @@ public partial class GameState
     public bool ShowAllOrbits { get; set; } = false;
     // When true, render any craft with a maneuver node and its predicted orbit
     public bool ShowAllManeuvers { get; set; } = false;
+    // Toggle to show/hide planet control-area lanes
+    public bool ShowControlAreaLanes { get; set; } = true;
     public Ship SelectedShip
     {
         get => SelectedOrbitingObject as Ship;
@@ -88,6 +88,7 @@ public partial class GameState
         IsPaused = false;
         IsCameraFocusedOnSelected = false;
         IsProjectedCameraStationCentered = true;
+        ShowControlAreaLanes = true;
         HohmannTransferTargetAltitudeMeters = Math.Clamp(500e3, 0d, CentralBody.ControlAltitudeMeters);
         IsHohmannTransferMouseTargetSelectionActive = false;
         HohmannTransferStartImmediate = false;
@@ -217,8 +218,7 @@ public partial class GameState
 
     public void CheckShipSeperation()
     {
-        var cellSize = GameConstants.ShipSepration;
-        var grid = new Dictionary<(int, int), List<Ship>>();
+        var laneBuckets = new Dictionary<int, List<Ship>>();
 
         foreach (var ship in Ships)
         {
@@ -231,44 +231,49 @@ public partial class GameState
                 continue;
             }
 
-            int cx = (int)MathF.Floor(ship.Position.X / cellSize);
-            int cy = (int)MathF.Floor(ship.Position.Y / cellSize);            
-            var cell = (cx,  cy);
-            
-            if (!grid.ContainsKey(cell))
-                grid[cell] = new List<Ship>();
+            var altitudeMeters = ship.PositionD.Length() - CentralBody.Radius;
+            var occupiedLanes = ControlLaneUtils.GetShipOccupiedLaneIndices(CentralBody, altitudeMeters);
+            if (occupiedLanes.Count == 0)
+            {
+                continue;
+            }
 
-            grid[cell].Add(ship);
+            foreach (var laneIdx in occupiedLanes)
+            {
+                if (!laneBuckets.TryGetValue(laneIdx, out var laneShips))
+                {
+                    laneShips = new List<Ship>();
+                    laneBuckets[laneIdx] = laneShips;
+                }
+                laneShips.Add(ship);
+            }
         }
 
-        foreach(var cell in grid.Keys)
+        foreach (var laneShips in laneBuckets.Values)
         {
-            for (int dx = -1; dx <= 1; dx++)
+            for (int i = 0; i < laneShips.Count; i++)
             {
-                for (int dy = -1; dy <= 1; dy++)
+                var shipA = laneShips[i];
+                var shipAAngle = Math.Atan2(shipA.PositionD.Y, shipA.PositionD.X);
+                var shipARadius = shipA.PositionD.Length();
+
+                for (int j = i + 1; j < laneShips.Count; j++)
                 {
-                    var neighborCell = (cell.Item1 + dx, cell.Item2 + dy);
-                    if (!grid.ContainsKey(neighborCell)) continue;
-
-                    var shipsA = grid[cell];
-                    var shipsB = grid[neighborCell];
-
-                    foreach (var shipA in shipsA)
+                    var shipB = laneShips[j];
+                    var shipBAngle = Math.Atan2(shipB.PositionD.Y, shipB.PositionD.X);
+                    var shipBRadius = shipB.PositionD.Length();
+                    var referenceRadius = (shipARadius + shipBRadius) * 0.5d;
+                    if (!double.IsFinite(referenceRadius) || referenceRadius <= 0d)
                     {
-                        foreach (var shipB in shipsB)
-                        {
-                            // Avoid double-checking or self-check
-                            if (shipA == shipB) continue;
+                        continue;
+                    }
 
-                            // Optional: avoid double-checks across neighboring cells
-                            if (cell == neighborCell && shipA.GetHashCode() > shipB.GetHashCode()) continue;
-
-                            if (Vector2.Distance(shipA.Position, shipB.Position) <= GameConstants.ShipSepration)
-                            {
-                                shipA.Status.IsEncroached = true;
-                                shipB.Status.IsEncroached = true;
-                            }
-                        }
+                    var angleDelta = Math.Abs(ControlLaneUtils.ShortestSignedAngleDelta(shipAAngle, shipBAngle));
+                    var alongTrackDistanceMeters = angleDelta * referenceRadius;
+                    if (alongTrackDistanceMeters <= GameConstants.ControlLaneLongitudinalHalfExtentMeters)
+                    {
+                        shipA.Status.IsEncroached = true;
+                        shipB.Status.IsEncroached = true;
                     }
                 }
             }
@@ -463,13 +468,14 @@ public partial class GameState
     private Orbit CreateRandomInboundOrbit(Station station)
     {
         var stationAltitude = station.Orbit.Periapsis;
-        var laneOffset = _rng.Next(0, 2) == 0 ? -ArrivalLaneOffsetMeters : ArrivalLaneOffsetMeters;
-        var basePeriapsis = stationAltitude + laneOffset;
-        var periapsisJitter = ((_rng.NextDouble() * 2d) - 1d) * InboundPeriapsisRandomRangeMeters;
         var minimumSpawnAltitude = GetMinimumSpawnAltitude();
-        
-        // Periapsis should be near the station (with some jitter)
-        var periapsis = Math.Max(minimumSpawnAltitude, basePeriapsis + periapsisJitter);
+        var approachLaneCount = ControlLaneUtils.GetStationApproachLaneCount(station);
+        var laneDepth = _rng.Next(1, approachLaneCount + 1);
+        var laneSign = _rng.Next(0, 2) == 0 ? -1d : 1d;
+        var laneOffset = laneSign * (laneDepth * GameConstants.ControlLaneWidthMeters);
+
+        // Periapsis snapped to the exact lane center (no jitter), so the ship is in the middle of a lane.
+        var periapsis = Math.Max(minimumSpawnAltitude, stationAltitude + laneOffset);
 
         // Apoapsis should be outside the control area so the ship spawns there
         var controlAltitude = CentralBody.ControlAltitudeMeters;
@@ -583,10 +589,8 @@ public partial class GameState
 
     private double GetOutboundSpawnAltitude(Station station, ShipTrafficLane lane)
     {
-        var laneSign = lane == ShipTrafficLane.StationDepartureUpper ? 1d : -1d;
-        var insideControlOffset = station.ControlAreaHalfAltitudeMeters * DepartureSpawnControlAreaDepthFactor;
-        var spawnAltitude = station.Orbit.Periapsis + (laneSign * insideControlOffset);
-        return Math.Max(GetMinimumSpawnAltitude(), spawnAltitude);
+        // Snap to station altitude — the center of departure lane 0.
+        return Math.Max(GetMinimumSpawnAltitude(), station.Orbit.Periapsis);
     }
 
     private static double GetInboundSpawnTrueAnomaly(Orbit orbit, double spawnRadius)
@@ -631,39 +635,7 @@ public partial class GameState
 
     private static bool IsInsideStationControlArea(DVector2 shipPosition, Station station)
     {
-        var stationPosition = station.Orbit.PositionVectorD;
-        var stationRadius = stationPosition.Length();
-        if (stationRadius <= 0d)
-        {
-            return false;
-        }
-
-        var shipRadius = shipPosition.Length();
-        var innerRadius = Math.Max(1d, stationRadius - station.ControlAreaHalfAltitudeMeters);
-        var outerRadius = stationRadius + station.ControlAreaHalfAltitudeMeters;
-        if (shipRadius < innerRadius || shipRadius > outerRadius)
-        {
-            return false;
-        }
-
-        var arrivalAngle = station.ControlAreaArrivalExtentMeters / stationRadius;
-        var departureAngle = station.ControlAreaDepartureExtentMeters / stationRadius;
-        var stationAngle = Math.Atan2(stationPosition.Y, stationPosition.X);
-        var shipAngle = Math.Atan2(shipPosition.Y, shipPosition.X);
-        var stationVelocity = station.Orbit.VelocityVectorD;
-        var motionSign = Math.Sign((stationPosition.X * stationVelocity.Y) - (stationPosition.Y * stationVelocity.X));
-        if (motionSign == 0)
-        {
-            motionSign = 1;
-        }
-
-        var signedOffset = NormalizeSignedAngle(shipAngle - stationAngle) * motionSign;
-        if (shipRadius >= stationRadius)
-        {
-            return signedOffset >= -departureAngle && signedOffset <= arrivalAngle;
-        }
-
-        return signedOffset >= -arrivalAngle && signedOffset <= departureAngle;
+        return ControlLaneUtils.IsInsideStationControlArea(station, shipPosition);
     }
 
     private static void BeginActivationFlash(Ship ship)

@@ -97,6 +97,7 @@ public partial class GameState
             IsProjectedCameraStationCentered = IsProjectedCameraStationCentered,
             ShowAllOrbits = ShowAllOrbits,
             ShowAllManeuvers = ShowAllManeuvers,
+            ShowControlAreaLanes = ShowControlAreaLanes,
             ElapsedTimeSeconds = ElapsedTimeSeconds,
             WarpState = WarpState,
             IsPaused = IsPaused,
@@ -128,6 +129,7 @@ public partial class GameState
         IsProjectedCameraStationCentered = snapshot.IsProjectedCameraStationCentered;
         ShowAllOrbits = snapshot.ShowAllOrbits;
         ShowAllManeuvers = snapshot.ShowAllManeuvers;
+        ShowControlAreaLanes = snapshot.ShowControlAreaLanes;
         ElapsedTimeSeconds = Math.Max(0d, snapshot.ElapsedTimeSeconds);
         WarpState = Math.Clamp(snapshot.WarpState, 1, 12);
         IsPaused = snapshot.IsPaused;
@@ -200,6 +202,7 @@ public partial class GameState
         {
             snapshot.Name = station.Name;
             snapshot.NumberOfRunways = station.NumberOfRunways;
+            snapshot.ApproachLaneCount = station.ApproachLaneCount;
             snapshot.ControlAreaHalfAltitudeMeters = station.ControlAreaHalfAltitudeMeters;
             snapshot.ControlAreaArrivalExtentMeters = station.ControlAreaArrivalExtentMeters;
             snapshot.ControlAreaDepartureExtentMeters = station.ControlAreaDepartureExtentMeters;
@@ -232,6 +235,7 @@ public partial class GameState
             {
                 Name = snapshot.Name,
                 NumberOfRunways = snapshot.NumberOfRunways,
+                ApproachLaneCount = snapshot.ApproachLaneCount,
                 ControlAreaHalfAltitudeMeters = snapshot.ControlAreaHalfAltitudeMeters,
                 ControlAreaArrivalExtentMeters = snapshot.ControlAreaArrivalExtentMeters,
                 ControlAreaDepartureExtentMeters = snapshot.ControlAreaDepartureExtentMeters,
@@ -435,6 +439,7 @@ public partial class GameState
         public bool IsProjectedCameraStationCentered { get; set; }
         public bool ShowAllOrbits { get; set; }
         public bool ShowAllManeuvers { get; set; }
+        public bool ShowControlAreaLanes { get; set; } = true;
         public double ElapsedTimeSeconds { get; set; }
         public int WarpState { get; set; }
         public bool IsPaused { get; set; }
@@ -465,6 +470,7 @@ public partial class GameState
         public string Name { get; set; }
         public OrbitSnapshot Orbit { get; set; }
         public int NumberOfRunways { get; set; }
+        public int ApproachLaneCount { get; set; } = Station.DefaultApproachLaneCount;
         public double ControlAreaHalfAltitudeMeters { get; set; } = Station.DefaultControlAreaHalfAltitudeMeters;
         public double ControlAreaArrivalExtentMeters { get; set; } = Station.DefaultControlAreaArrivalExtentMeters;
         public double ControlAreaDepartureExtentMeters { get; set; } = Station.DefaultControlAreaDepartureExtentMeters;

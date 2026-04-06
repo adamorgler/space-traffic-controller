@@ -647,6 +647,7 @@ public class InputHandler
             UIAction.ToggleOrbitsVisibility => true,
             UIAction.ToggleViewMode => true,
             UIAction.ToggleShowManeuvers => true,
+            UIAction.ToggleControlAreaLanes => true,
             UIAction.CameraFocusSelected => true,
             UIAction.CameraResetView => true,
             UIAction.ToggleProjectedStationCenter => true,
@@ -715,6 +716,9 @@ public class InputHandler
                 return;
             case UIAction.ToggleShowManeuvers:
                 GameState.ShowAllManeuvers = !GameState.ShowAllManeuvers;
+                return;
+            case UIAction.ToggleControlAreaLanes:
+                GameState.ShowControlAreaLanes = !GameState.ShowControlAreaLanes;
                 return;
             case UIAction.ToggleProjectedStationCenter:
                 GameState.IsProjectedCameraStationCentered = !GameState.IsProjectedCameraStationCentered;
@@ -1016,7 +1020,7 @@ public class InputHandler
 
         var altitudeMeters = radiusMeters - GameState.CentralBody.Radius;
         altitudeMeters = Math.Clamp(altitudeMeters, 0d, GameState.CentralBody.ControlAltitudeMeters);
-        altitudeMeters = Math.Round(altitudeMeters / 10_000d) * 10_000d;
+        altitudeMeters = Math.Round(altitudeMeters / 50_000d) * 50_000d;
 
         var changed = Math.Abs(altitudeMeters - GameState.HohmannTransferTargetAltitudeMeters) > 0.1d;
         if (changed)

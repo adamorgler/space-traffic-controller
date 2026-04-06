@@ -9,7 +9,7 @@ using System.Collections.Generic;
 
 namespace SpaceTrafficController.UI;
 
-public enum UIAction { None, ManeuverProgradeStep, ManeuverNormalStep, CircularizeAtPE, CircularizeAtAP, HohmannOpenDialogApsis, HohmannOpenDialogImmediate, HohmannAltitude10Decrease, HohmannAltitude10Increase, HohmannAltitude50Decrease, HohmannAltitude50Increase, HohmannAltitude100Decrease, HohmannAltitude100Increase, HohmannConfirm, HohmannCancel, ManeuverAccept, ManeuverCancel, WarpDecrease, WarpIncrease, PauseToggle, PauseNewGame, PauseExit, CameraFocusSelected, CameraResetView, ToggleOrbitsVisibility, ToggleShowManeuvers, ToggleViewMode, ToggleProjectedStationCenter, OutboundSetExitManeuverApsis, OutboundSetExitManeuverImmediate }
+public enum UIAction { None, ManeuverProgradeStep, ManeuverNormalStep, CircularizeAtPE, CircularizeAtAP, HohmannOpenDialogApsis, HohmannOpenDialogImmediate, HohmannAltitude10Decrease, HohmannAltitude10Increase, HohmannAltitude50Decrease, HohmannAltitude50Increase, HohmannAltitude100Decrease, HohmannAltitude100Increase, HohmannConfirm, HohmannCancel, ManeuverAccept, ManeuverCancel, WarpDecrease, WarpIncrease, PauseToggle, PauseNewGame, PauseExit, CameraFocusSelected, CameraResetView, ToggleOrbitsVisibility, ToggleShowManeuvers, ToggleViewMode, ToggleProjectedStationCenter, ToggleControlAreaLanes, OutboundSetExitManeuverApsis, OutboundSetExitManeuverImmediate }
 public record UIButtonResult(UIAction Action, double StepValue = 0d);
 
 public class UIRenderer
@@ -152,8 +152,8 @@ public class UIRenderer
 
         var panelX = padding;
 
-        // four stacked buttons: orbits, maneuvers, projected view toggle, station-center toggle
-        var totalHeight = (buttonHeight * 4f) + innerPadding * 2f + (buttonGap * 3f);
+        // five stacked buttons: orbits, maneuvers, projected view toggle, station-center toggle, lanes toggle
+        var totalHeight = (buttonHeight * 5f) + innerPadding * 2f + (buttonGap * 4f);
         var panelY = GraphicsDevice.Viewport.Height - padding - timePanelHeight - panelGap - totalHeight;
         SpriteBatch.FillRectangle(panelX, panelY, panelWidth, totalHeight, new Color(0, 0, 0, 180));
         SpriteBatch.DrawRectangle(panelX, panelY, panelWidth, totalHeight, Color.Gray * 0.6f, 1f);
@@ -178,6 +178,11 @@ public class UIRenderer
         DrawPanelButton(new RectangleF(panelX + innerPadding, panelY + innerPadding + (buttonHeight + buttonGap) * 3f, panelWidth - innerPadding * 2f, buttonHeight),
             centerLabel,
             new UIButtonResult(UIAction.ToggleProjectedStationCenter));
+
+        var lanesLabel = gameState.ShowControlAreaLanes ? "Control Lanes [On]" : "Control Lanes [Off]";
+        DrawPanelButton(new RectangleF(panelX + innerPadding, panelY + innerPadding + (buttonHeight + buttonGap) * 4f, panelWidth - innerPadding * 2f, buttonHeight),
+            lanesLabel,
+            new UIButtonResult(UIAction.ToggleControlAreaLanes));
     }
 
     private void DrawPausedOverlay(GameState gameState)
@@ -580,7 +585,7 @@ public class UIRenderer
 
         if (isMouseSelecting)
         {
-            SpriteBatch.DrawString(font, "10 km snapping active", new Vector2(panelX + padding, cy), Color.LightGray);
+            SpriteBatch.DrawString(font, "50 km snapping active", new Vector2(panelX + padding, cy), Color.LightGray);
             cy += btnH + btnGap;
         }
         else

@@ -32,7 +32,7 @@ public class CartesianSimulationRenderer : SimulationRendererBase
         var station = gameState.Stations.FirstOrDefault();
 
         DrawBackground(body);
-        DrawBodyAndReferenceLines(body);
+        DrawBodyAndReferenceLines(body, gameState.ShowControlAreaLanes);
 
         var orbitDefaultColor = OrbitDefaultColor;
 
@@ -117,16 +117,6 @@ public class CartesianSimulationRenderer : SimulationRendererBase
             var targetOrbit = target.Orbit;
             DrawOrbit(targetOrbit, TargetOrbitColor);
             DrawApsisMarkers(targetOrbit, TargetApsisColor);
-
-            Orbit shipOrbitForApproach = GetOrbitAfterPlannedManeuvers(selectedShip);
-
-            Orbit targetOrbitForApproach = targetOrbit;
-            if (target is Ship targetShip)
-            {
-                targetOrbitForApproach = GetOrbitAfterPlannedManeuvers(targetShip);
-            }
-
-            DrawClosestApproach(shipOrbitForApproach, targetOrbitForApproach, selectedShip, target);
         }
     }
 
@@ -156,10 +146,13 @@ public class CartesianSimulationRenderer : SimulationRendererBase
         }
     }
 
-    private void DrawBodyAndReferenceLines(CelestialBody body)
+    private void DrawBodyAndReferenceLines(CelestialBody body, bool showControlAreaLanes)
     {
         var w = GraphicsDevice.Viewport.Width;
         var h = GraphicsDevice.Viewport.Height;
+        var atmosphereTopAltitude = body.AtmosphereLayers.Count > 0
+            ? body.AtmosphereLayers.Max(layer => layer.Altitude + layer.Thickness)
+            : 0d;
         var surfaceY = GetSurfaceY();
         var topY = TopBuffer;
 
@@ -175,41 +168,47 @@ public class CartesianSimulationRenderer : SimulationRendererBase
         var controlY = ProjectAltitudeToY(body.ControlAltitudeMeters);
         SpriteBatch.DrawLine(new Vector2(0, controlY), new Vector2(w, controlY), Color.LightGray * 0.65f, 1f);
 
-        // longitude ticks every 45°
-        for (int deg = -180; deg <= 180; deg += 45)
+        if (showControlAreaLanes)
         {
-            var x = ProjectAngleToX(MathHelper.ToRadians(deg));
-            var isMajor = deg % 90 == 0;
-            SpriteBatch.DrawLine(
-                new Vector2(x, surfaceY - (isMajor ? 10f : 6f)),
-                new Vector2(x, surfaceY),
-                isMajor ? Color.White * 0.65f : Color.Gray * 0.55f,
-                isMajor ? 1.5f : 1f);
+            foreach (var edgeAltitude in EnumeratePlanetControlLaneEdgeAltitudes(body.ControlAltitudeMeters, atmosphereTopAltitude))
+            {
+                var y = ProjectAltitudeToY(edgeAltitude);
+                DrawDashedLine(
+                    new Vector2(0f, y),
+                    new Vector2(w, y),
+                    ControlAreaLaneColor,
+                    1f,
+                    dashLength: 8f,
+                    gapLength: 4f);
+            }
         }
     }
 
     private void DrawShips(List<Ship> ships, GameState gameState)
     {
-        const float size = 5f;
+        const int size = 5;
         foreach (var ship in ships)
         {
             var position = ProjectPosition(ship.Orbit.PositionVectorD);
 
+            if (ship.Status.IsControllable)
+            {
+                var zoneColor = ship.Status.IsEncroached ? EncroachedSeparationColor : SafeSeparationColor;
+                DrawProjectedLaneControlZone(ship, position, zoneColor, 1f);
+            }
+
             if (ship.IsSelected)
             {
-                DrawOrbit(ship.Orbit, SelectedOrbitColor);
-                DrawApsisMarkers(ship.Orbit, SelectedOrbitColor);
+                var orbit = ship.Orbit;
+                DrawOrbit(orbit, SelectedOrbitColor);
+                DrawApsisMarkers(orbit, SelectedOrbitColor);
 
-                if (ship.ManeuverNode is null)
-                {
-                    DrawOrbitMouseIntersection(ship.Orbit);
-                }
-                else
+                if (ship.ManeuverNode is not null)
                 {
                     var firstNode = ship.ManeuverNode;
-                    DrawManueverNode(firstNode, ship.Orbit, drawButtons: ship.NextManeuverNode is null);
+                    DrawManueverNode(firstNode, orbit, drawButtons: ship.NextManeuverNode is null);
 
-                    var secondBaseOrbit = firstNode.GetPredictedOrbit(ship.Orbit);
+                    var secondBaseOrbit = firstNode.GetPredictedOrbit(orbit);
                     if (ship.NextManeuverNode is null && firstNode.IsConfirmed && secondBaseOrbit is not null)
                     {
                         DrawOrbitMouseIntersection(secondBaseOrbit);
@@ -220,16 +219,16 @@ public class CartesianSimulationRenderer : SimulationRendererBase
                         DrawManueverNode(ship.NextManeuverNode, secondBaseOrbit, drawButtons: true);
                     }
                 }
+                else
+                {
+                    DrawOrbitMouseIntersection(orbit);
+                }
 
                 var destinationOrbit = GetDestinationOrbit(ship);
                 if (destinationOrbit is not null)
                 {
                     DrawOrbit(destinationOrbit, TargetOrbitColor);
                     DrawApsisMarkers(destinationOrbit, TargetApsisColor);
-
-                    var orbitForApproach = GetOrbitAfterPlannedManeuvers(ship);
-
-                    DrawClosestApproach(orbitForApproach, destinationOrbit);
                 }
             }
 
@@ -241,17 +240,11 @@ public class CartesianSimulationRenderer : SimulationRendererBase
                         ? ExitDestinationShipColor
                         : ActiveShipColor;
 
-            var separationColor = !ship.Status.IsControllable
-                ? UncontrolledShipColor
-                : ship.Status.IsEncroached ? EncroachedSeparationColor : SafeSeparationColor;
-
             SpriteBatch.DrawRectangle(position.X - (size / 2f), position.Y - (size / 2f), size, size, shipColor, 1.5f);
 
             if (ShouldDrawActivationFlash(ship))
             {
-                const float flashRadius = 10f;
-                const float flashThickness = 2f;
-                SpriteBatch.DrawCircle(new CircleF() { Center = position, Radius = flashRadius }, 24, ActivationFlashColor, flashThickness);
+                SpriteBatch.DrawCircle(new CircleF() { Center = position, Radius = 8f }, 20, ActivationFlashColor, 1.8f);
             }
 
             var nodeCount = (ship.ManeuverNode is not null ? 1 : 0) + (ship.NextManeuverNode is not null ? 1 : 0);
@@ -261,19 +254,10 @@ public class CartesianSimulationRenderer : SimulationRendererBase
                 var markerScale = ManeuverIndicatorScale;
                 var markerLabel = ManeuverIndicatorLabel;
                 var textSize = markerFont.MeasureString(markerLabel) * markerScale;
-
-                var atRadiusMeters = Math.Max(1d, ship.Orbit.PositionVectorD.Length());
-                var worldSeparationRadius = GameConstants.ShipSepration / 2d;
-                var drawableHeight = Math.Max(1f, GraphicsDevice.Viewport.Height - TopBuffer - BottomBuffer);
-                var pixelsPerMeterY = drawableHeight / Math.Max(1d, GameState.CentralBody.ControlAltitudeMeters);
-                var pixelsPerMeterX = GraphicsDevice.Viewport.Width / Math.Max(1d, MathHelper.TwoPi * atRadiusMeters);
-                var rx = Math.Max(1f, (float)(worldSeparationRadius * pixelsPerMeterX));
-                var ry = Math.Max(1f, (float)(worldSeparationRadius * pixelsPerMeterY));
                 var markerPadding = ManeuverIndicatorPadding;
-
                 var markerStartPos = position + new Vector2(
-                    rx + markerPadding,
-                    -(ry + markerPadding + textSize.Y));
+                    (size * 0.5f) + markerPadding + 2f,
+                    -((size * 0.5f) + markerPadding + textSize.Y + 2f));
 
                 var markerCircleRadius = MathF.Max(textSize.X, textSize.Y) * ManeuverIndicatorCircleRadiusFactor + ManeuverIndicatorCircleRadiusOffset;
                 var markerStepX = (markerCircleRadius * 2f) + ManeuverIndicatorSpacing;
@@ -298,54 +282,159 @@ public class CartesianSimulationRenderer : SimulationRendererBase
                     SpriteBatch.DrawString(markerFont, markerLabel, markerPos, markerColor, 0f, Vector2.Zero, markerScale, SpriteEffects.None, 0f);
                 }
             }
-
-            if (!ship.Status.IsInStationControlArea)
-            {
-                DrawProjectedSeparationEllipse(
-                    center: position,
-                    worldRadiusMeters: GameConstants.ShipSepration / 2d,
-                    atRadiusMeters: ship.Orbit.PositionVectorD.Length(),
-                    color: separationColor,
-                    thickness: 1.2f);
-            }
         }
+    }
+
+    private void DrawProjectedLaneControlZone(Ship ship, Vector2 center, Color color, float thickness)
+    {
+        var body = GameState.CentralBody;
+        var altitudeMeters = ship.Orbit.PositionVectorD.Length() - body.Radius;
+        if (!ControlLaneUtils.TryGetShipEffectiveLaneBounds(body, altitudeMeters, out var laneLowerAltitude, out var laneUpperAltitude, out _))
+        {
+            return;
+        }
+
+        var shipRadiusMeters = ship.Orbit.PositionVectorD.Length();
+        if (!double.IsFinite(shipRadiusMeters) || shipRadiusMeters <= 0d)
+        {
+            return;
+        }
+
+        var width = GraphicsDevice.Viewport.Width;
+        var pixelsPerMeterX = width / Math.Max(1d, MathHelper.TwoPi * shipRadiusMeters);
+        var halfWidthPixels = (float)(GameConstants.ControlLaneLongitudinalHalfExtentMeters * pixelsPerMeterX);
+        if (halfWidthPixels <= 0f)
+        {
+            return;
+        }
+
+        var top = ProjectAltitudeToY(laneUpperAltitude);
+        var bottom = ProjectAltitudeToY(laneLowerAltitude);
+        var rectY = Math.Min(top, bottom);
+        var rectHeight = Math.Max(1f, Math.Abs(bottom - top));
+
+        var left = center.X - halfWidthPixels;
+        var right = center.X + halfWidthPixels;
+        if (left >= 0f && right <= width)
+        {
+            SpriteBatch.DrawRectangle(left, rectY, right - left, rectHeight, color, thickness);
+            return;
+        }
+
+        if (left < 0f)
+        {
+            SpriteBatch.DrawRectangle(0f, rectY, right, rectHeight, color, thickness);
+            SpriteBatch.DrawRectangle(width + left, rectY, -left, rectHeight, color, thickness);
+            return;
+        }
+
+        SpriteBatch.DrawRectangle(left, rectY, width - left, rectHeight, color, thickness);
+        SpriteBatch.DrawRectangle(0f, rectY, right - width, rectHeight, color, thickness);
     }
 
     private void DrawOrbitMouseIntersection(Orbit orbit)
     {
-        var mousePos = GetProjectedMouseWorldPosition();
-        var orbitPos = OrbitUtils.GetOrbitIntersectionNearMouse(orbit, mousePos.ToNumerics());
-        if (orbitPos is null)
+        var mouseScreen = MouseState.Position.ToVector2();
+        if (!TryGetProjectedOrbitClosestPoint(orbit, mouseScreen, out var screenPos))
             return;
 
-        var intersectionPos = ProjectPosition(orbit.GetPositionAtAngleD(orbitPos.TrueAnomaly));
-        SpriteBatch.DrawCircle(new CircleF() { Center = intersectionPos, Radius = 5f }, 12, Color.LightGray);
+        SpriteBatch.DrawCircle(new CircleF() { Center = screenPos, Radius = 4f }, 16, HoverNodeColor, 1.5f);
+    }
+
+    private bool TryGetProjectedOrbitClosestPoint(Orbit orbit, Vector2 mouseScreen, out Vector2 closestScreenPoint)
+    {
+        closestScreenPoint = Vector2.Zero;
+
+        var sampleCount = orbit.IsEscapeTrajectory ? 220 : 360;
+        if (sampleCount < 2)
+            return false;
+
+        var points = new List<Vector2>(sampleCount + 1);
+        if (orbit.IsEscapeTrajectory)
+        {
+            var maxAngle = orbit.GetHyperbolicTrueAnomalyLimit() - 0.01d;
+            for (int i = 0; i <= sampleCount; i++)
+            {
+                var angle = -maxAngle + ((2d * maxAngle) * i / sampleCount);
+                points.Add(ProjectPosition(orbit.GetPositionAtAngleD(angle)));
+            }
+        }
+        else
+        {
+            for (int i = 0; i <= sampleCount; i++)
+            {
+                var angle = MathHelper.TwoPi * i / sampleCount;
+                points.Add(ProjectPosition(orbit.GetPositionAtAngleD(angle)));
+            }
+        }
+
+        var width = GraphicsDevice.Viewport.Width;
+        var bestDistSq = float.MaxValue;
+        var found = false;
+
+        for (int i = 0; i < points.Count - 1; i++)
+        {
+            var a = points[i];
+            var b = points[i + 1];
+
+            if (width > 0)
+            {
+                if (b.X - a.X > width * 0.5f) b.X -= width;
+                else if (b.X - a.X < -width * 0.5f) b.X += width;
+            }
+
+            for (int wrap = -1; wrap <= 1; wrap++)
+            {
+                var shiftedMouse = mouseScreen + new Vector2(wrap * width, 0f);
+                var candidate = ClosestPointOnSegment(a, b, shiftedMouse);
+                var distSq = Vector2.DistanceSquared(shiftedMouse, candidate);
+                if (distSq < bestDistSq)
+                {
+                    bestDistSq = distSq;
+                    closestScreenPoint = candidate;
+                    found = true;
+                }
+            }
+        }
+
+        if (!found)
+            return false;
+
+        if (width > 0)
+        {
+            closestScreenPoint.X = (closestScreenPoint.X % width + width) % width;
+        }
+
+        const float thresholdPx = 20f;
+        return bestDistSq <= thresholdPx * thresholdPx;
+    }
+
+    private static Vector2 ClosestPointOnSegment(Vector2 a, Vector2 b, Vector2 p)
+    {
+        var ab = b - a;
+        var abLenSq = ab.LengthSquared();
+        if (abLenSq <= 1e-6f)
+            return a;
+
+        var t = Vector2.Dot(p - a, ab) / abLenSq;
+        t = Math.Clamp(t, 0f, 1f);
+        return a + (ab * t);
     }
 
     private Ship? GetHoveredShip(List<Ship> ships)
     {
-        var mousePos = MouseState.Position.ToVector2();
-        var viewportWidth = Math.Max(1f, GraphicsDevice.Viewport.Width);
-        const float hitRadius = 10f;
-        var hitRadiusSq = hitRadius * hitRadius;
-
-        Ship? hovered = null;
-        var bestDistSq = float.MaxValue;
+        var mouse = MouseState.Position.ToVector2();
+        const float threshold = 10f;
         foreach (var ship in ships)
         {
-            var pos = ProjectPosition(ship.Orbit.PositionVectorD);
-            var dx = Math.Abs(pos.X - mousePos.X);
-            dx = Math.Min(dx, viewportWidth - dx);
-            var dy = pos.Y - mousePos.Y;
-            var distSq = (dx * dx) + (dy * dy);
-            if (distSq <= hitRadiusSq && distSq < bestDistSq)
+            var shipPos = ProjectPosition(ship.Orbit.PositionVectorD);
+            if (Vector2.Distance(mouse, shipPos) <= threshold)
             {
-                bestDistSq = distSq;
-                hovered = ship;
+                return ship;
             }
         }
 
-        return hovered;
+        return null;
     }
 
     private void DrawRelativePath(HasOrbit subject, HasOrbit reference, Color color)
@@ -362,7 +451,7 @@ public class CartesianSimulationRenderer : SimulationRendererBase
             return;
         }
 
-        var currentReferencePosition = reference.Orbit.PositionVectorD;
+        var currentReferencePosition = referenceOrbit.PositionVectorD;
         if (currentReferencePosition.Length() <= 0d)
         {
             return;
@@ -370,11 +459,11 @@ public class CartesianSimulationRenderer : SimulationRendererBase
 
         var durationSeconds = GetSingleOrbitDurationSeconds(subjectOrbit, referenceOrbit);
         const int samples = 240;
-        var subjectPlan = BuildTrajectoryPlan(subject, durationSeconds);
-        var referencePlan = BuildTrajectoryPlan(reference, durationSeconds);
 
-        var subjectPositions = SamplePlanPositions(subjectPlan, samples, durationSeconds);
-        var referencePositions = SamplePlanPositions(referencePlan, samples, durationSeconds);
+        var planSubject = BuildTrajectoryPlan(subject, durationSeconds);
+        var planReference = BuildTrajectoryPlan(reference, durationSeconds);
+        var subjectPositions = SamplePlanPositions(planSubject, samples, durationSeconds);
+        var referencePositions = SamplePlanPositions(planReference, samples, durationSeconds);
         if (subjectPositions.Count != referencePositions.Count || subjectPositions.Count == 0)
         {
             return;
@@ -382,32 +471,9 @@ public class CartesianSimulationRenderer : SimulationRendererBase
 
         var currentReferenceAngle = Math.Atan2(currentReferencePosition.Y, currentReferencePosition.X);
         var points = new List<Vector2>(subjectPositions.Count);
-        var controlRadius = GameState.CentralBody.ControlRadius;
         for (int i = 0; i < subjectPositions.Count; i++)
         {
-            var subjectPosition = subjectPositions[i];
-            var referencePosition = referencePositions[i];
-
-            if (subjectPosition.Length() > 0d && referencePosition.Length() > 0d)
-            {
-                var subjectRadius = subjectPosition.Length();
-                if (!double.IsFinite(subjectRadius) || subjectRadius <= 0d)
-                {
-                    continue;
-                }
-
-                if (subjectRadius >= controlRadius)
-                {
-                    // Cap path at the control boundary for projected view readability.
-                    // Escape trajectories continue beyond view, so extending samples can
-                    // create misleading corner streaks.
-                    var boundaryPoint = DVector2.Normalize(subjectPosition) * controlRadius;
-                    points.Add(ToRelativeProjectedScreen(boundaryPoint, referencePosition, currentReferenceAngle));
-                    break;
-                }
-
-                points.Add(ToRelativeProjectedScreen(subjectPosition, referencePosition, currentReferenceAngle));
-            }
+            points.Add(ToRelativeProjectedScreen(subjectPositions[i], referencePositions[i], currentReferenceAngle));
         }
 
         if (points.Count < 2)
@@ -415,49 +481,132 @@ public class CartesianSimulationRenderer : SimulationRendererBase
             return;
         }
 
-        var transitionIndices = new List<int>();
-        if (points.Count > 2)
+        // Resample points to be uniformly spaced by distance so dashes appear evenly sized
+        points = ResamplePointsByDistance(points);
+
+        var width = GraphicsDevice.Viewport.Width;
+        for (int i = 0; i < points.Count - 1; i++)
         {
-            var maxPointIndex = points.Count - 1;
-            for (int i = 0; i < subjectPlan.TransitionTimes.Count; i++)
+            var a = points[i];
+            var b = points[i + 1];
+
+            if (Math.Abs(b.X - a.X) > width * 0.5f)
             {
-                var idx = (int)Math.Round((subjectPlan.TransitionTimes[i] / durationSeconds) * maxPointIndex);
-                idx = Math.Clamp(idx, 1, maxPointIndex - 1);
-                if (!transitionIndices.Contains(idx))
+                continue;
+            }
+
+            DrawDashedLine(a, b, color, 1f, 4f, 5f);
+        }
+
+        DrawRelativePathIntervalMarkers(points, color);
+    }
+
+    private List<Vector2> ResamplePointsByDistance(List<Vector2> points)
+    {
+        if (points.Count < 2)
+            return new List<Vector2>(points);
+
+        var width = GraphicsDevice.Viewport.Width;
+        
+        // First pass: add intermediate points at sharp curves for smooth dashing
+        var smoothedPoints = new List<Vector2>();
+        smoothedPoints.Add(points[0]);
+        
+        const float angleThreshold = 0.2f; // radians, ~11 degrees
+        for (int i = 1; i < points.Count - 1; i++)
+        {
+            var prev = points[i - 1];
+            var curr = points[i];
+            var next = points[i + 1];
+            
+            var delta1 = curr - prev;
+            var delta2 = next - curr;
+            
+            if (delta1.LengthSquared() > 0.01f && delta2.LengthSquared() > 0.01f)
+            {
+                delta1.Normalize();
+                delta2.Normalize();
+                
+                // Calculate angle between segments
+                var angle = Math.Acos(Math.Clamp(Vector2.Dot(delta1, delta2), -1f, 1f));
+                
+                // If angle is sharp, add intermediate point
+                if (angle > angleThreshold)
                 {
-                    transitionIndices.Add(idx);
+                    smoothedPoints.Add(curr);
+                }
+            }
+            
+            smoothedPoints.Add(curr);
+        }
+        smoothedPoints.Add(points[points.Count - 1]);
+        
+        // Calculate cumulative distances
+        var distances = new List<float>(smoothedPoints.Count) { 0f };
+        for (int i = 1; i < smoothedPoints.Count; i++)
+        {
+            var delta = smoothedPoints[i] - smoothedPoints[i - 1];
+            // Skip wrapped segments
+            if (Math.Abs(delta.X) > width * 0.5f)
+            {
+                distances.Add(distances[i - 1]);
+            }
+            else
+            {
+                distances.Add(distances[i - 1] + delta.Length());
+            }
+        }
+
+        var totalDistance = distances[distances.Count - 1];
+        if (totalDistance <= 0f)
+            return new List<Vector2>(points);
+
+        // Resample with 9px spacing (4px dash + 5px gap)
+        const float spacing = 9f;
+        var resampled = new List<Vector2>();
+        
+        for (float d = 0f; d <= totalDistance; d += spacing)
+        {
+            // Find the segment containing this distance
+            int idx = distances.BinarySearch(d);
+            if (idx >= 0)
+            {
+                resampled.Add(smoothedPoints[idx]);
+            }
+            else
+            {
+                idx = ~idx;
+                if (idx == 0)
+                {
+                    resampled.Add(smoothedPoints[0]);
+                }
+                else if (idx >= distances.Count)
+                {
+                    resampled.Add(smoothedPoints[smoothedPoints.Count - 1]);
+                }
+                else
+                {
+                    var segmentDist = distances[idx] - distances[idx - 1];
+                    if (segmentDist > 0f)
+                    {
+                        var t = (d - distances[idx - 1]) / segmentDist;
+                        resampled.Add(Vector2.Lerp(smoothedPoints[idx - 1], smoothedPoints[idx], t));
+                    }
+                    else
+                    {
+                        resampled.Add(smoothedPoints[idx - 1]);
+                    }
                 }
             }
         }
 
-        transitionIndices.Sort();
-
-        var startIdx = 0;
-        var segmentNumber = 0;
-        for (int t = 0; t <= transitionIndices.Count; t++)
+        // Always add the last point
+        if (resampled.Count == 0 || Vector2.Distance(resampled[resampled.Count - 1], smoothedPoints[smoothedPoints.Count - 1]) > 0.1f)
         {
-            var endIdx = t < transitionIndices.Count ? transitionIndices[t] : points.Count - 1;
-            if (endIdx - startIdx >= 1)
-            {
-                var segmentPoints = points.GetRange(startIdx, endIdx - startIdx + 1);
-                var segmentColor = segmentNumber == 0
-                    ? color
-                    : Color.Lerp(color, Color.White, Math.Min(0.35f, 0.15f * segmentNumber));
-
-                DrawWrappedDashedPolyline(segmentPoints, segmentColor, 1f, dashLength: 7d, gapLength: 5d);
-                segmentNumber++;
-            }
-
-            if (t < transitionIndices.Count)
-            {
-                var transitionPoint = points[transitionIndices[t]];
-                SpriteBatch.DrawCircle(new CircleF() { Center = transitionPoint, Radius = 3f }, 14, ManeuverIndicatorPendingColor, 1f);
-            }
-
-            startIdx = endIdx;
+            resampled.Add(smoothedPoints[smoothedPoints.Count - 1]);
         }
 
-        DrawRelativePathIntervalMarkers(points, color);
+        return resampled;
     }
 
     private void DrawRelativePathIntervalMarkers(IReadOnlyList<Vector2> points, Color baseColor)
@@ -571,7 +720,12 @@ public class CartesianSimulationRenderer : SimulationRendererBase
         {
             var delta = positionsA[i] - positionsB[i];
             var distance = delta.Length();
-            var isConflict = distance <= thresholdMeters;
+            var altitudeA = positionsA[i].Length() - GameState.CentralBody.Radius;
+            var altitudeB = positionsB[i].Length() - GameState.CentralBody.Radius;
+            var occupiedLanesA = ControlLaneUtils.GetShipOccupiedLaneIndices(GameState.CentralBody, altitudeA);
+            var occupiedLanesB = ControlLaneUtils.GetShipOccupiedLaneIndices(GameState.CentralBody, altitudeB);
+            var sharesLane = occupiedLanesA.Count > 0 && occupiedLanesB.Count > 0 && occupiedLanesA.Any(lane => occupiedLanesB.Contains(lane));
+            var isConflict = sharesLane && distance <= thresholdMeters;
 
             if (isConflict && !inConflict)
             {
@@ -923,19 +1077,12 @@ public class CartesianSimulationRenderer : SimulationRendererBase
 
     private void DrawStationControlArea(Station station, bool drawArrows)
     {
-        var arrivalExtent = station.ControlAreaArrivalExtentMeters;
-        var departureExtent = station.ControlAreaDepartureExtentMeters;
-        var halfAltitude = station.ControlAreaHalfAltitudeMeters;
-        if ((arrivalExtent <= 0d && departureExtent <= 0d) || halfAltitude <= 0d)
+        if (station is null)
         {
             return;
         }
 
-        var paths = BuildStationControlPaths(
-            stationPosition: station.Orbit.PositionVectorD,
-            arrivalExtent: arrivalExtent,
-            departureExtent: departureExtent,
-            halfAltitude: halfAltitude);
+        var paths = BuildStationControlPaths(station);
 
         foreach (var path in paths)
         {
@@ -944,11 +1091,11 @@ public class CartesianSimulationRenderer : SimulationRendererBase
 
         if (drawArrows)
         {
-            DrawStationControlArrows(station, arrivalExtent, departureExtent, halfAltitude);
+            DrawStationControlArrows(station);
         }
     }
 
-    private void DrawStationControlArrows(Station station, double arrivalExtent, double departureExtent, double halfAltitude)
+    private void DrawStationControlArrows(Station station)
     {
         var stationPosition = station.Orbit.PositionVectorD;
         var orbitRadius = stationPosition.Length();
@@ -958,10 +1105,7 @@ public class CartesianSimulationRenderer : SimulationRendererBase
         }
 
         var centerAngle = Math.Atan2(stationPosition.Y, stationPosition.X);
-        var arrivalAngle = Math.Min(arrivalExtent / orbitRadius, Math.PI - 1e-4d);
-        var departureAngle = Math.Min(departureExtent / orbitRadius, Math.PI - 1e-4d);
-        var outerRadius = orbitRadius + halfAltitude / 2;
-        var innerRadius = Math.Max(1d, orbitRadius - halfAltitude / 2);
+        var departureAngle = Math.Min(station.ControlAreaDepartureExtentMeters / orbitRadius, Math.PI - 1e-4d);
         var arrowOffsetAngle = 1d.ToRadians();
         var motionSign = Math.Sign((stationPosition.X * station.Orbit.VelocityVectorD.Y) - (stationPosition.Y * station.Orbit.VelocityVectorD.X));
         if (motionSign == 0)
@@ -969,10 +1113,22 @@ public class CartesianSimulationRenderer : SimulationRendererBase
             motionSign = 1;
         }
 
-        DrawOrbitChevronArrow(centerAngle + arrivalAngle + arrowOffsetAngle, outerRadius, motionSign, alongOrbit: false, ArrivalArrowColor);
-        DrawOrbitChevronArrow(centerAngle - arrivalAngle - arrowOffsetAngle, innerRadius, motionSign, alongOrbit: true, ArrivalArrowColor);
-        DrawOrbitChevronArrow(centerAngle + departureAngle + arrowOffsetAngle, innerRadius, motionSign, alongOrbit: true, DepartureArrowColor);
-        DrawOrbitChevronArrow(centerAngle - departureAngle - arrowOffsetAngle, outerRadius, motionSign, alongOrbit: false, DepartureArrowColor);
+        var approachLaneCount = ControlLaneUtils.GetStationApproachLaneCount(station);
+        for (int laneDepth = 1; laneDepth <= approachLaneCount; laneDepth++)
+        {
+            var arrivalAngle = Math.Min(ControlLaneUtils.GetStationApproachExtentMeters(station, laneDepth) / orbitRadius, Math.PI - 1e-4d);
+            var upperLaneCenterRadius = orbitRadius + (laneDepth * GameConstants.ControlLaneWidthMeters);
+            var lowerLaneCenterRadius = Math.Max(1d, orbitRadius - (laneDepth * GameConstants.ControlLaneWidthMeters));
+
+            DrawOrbitChevronArrow(centerAngle + arrivalAngle + arrowOffsetAngle, upperLaneCenterRadius, motionSign, alongOrbit: false, ArrivalArrowColor);
+            DrawOrbitChevronArrow(centerAngle - arrivalAngle - arrowOffsetAngle, lowerLaneCenterRadius, motionSign, alongOrbit: true, ArrivalArrowColor);
+
+            if (laneDepth == 1)
+            {
+                DrawOrbitChevronArrow(centerAngle + departureAngle + arrowOffsetAngle, lowerLaneCenterRadius, motionSign, alongOrbit: true, DepartureArrowColor);
+                DrawOrbitChevronArrow(centerAngle - departureAngle - arrowOffsetAngle, upperLaneCenterRadius, motionSign, alongOrbit: false, DepartureArrowColor);
+            }
+        }
     }
 
     private void DrawApsisMarkers(Orbit orbit, Color color)
@@ -1003,329 +1159,6 @@ public class CartesianSimulationRenderer : SimulationRendererBase
         SpriteBatch.DrawString(Fonts.DebugFont, label, labelPos + new Vector2(0f, -1f), Color.Black);
         SpriteBatch.DrawString(Fonts.DebugFont, label, labelPos + new Vector2(0f, 1f), Color.Black);
         SpriteBatch.DrawString(Fonts.DebugFont, label, labelPos, color);
-    }
-
-    private void DrawClosestApproach(Orbit shipOrbit, Orbit destOrbit, HasOrbit? shipObj = null, HasOrbit? destObj = null)
-    {
-        var (bestShipAngle, bestDestAngle) = FindClosestApproachAngles(shipOrbit, destOrbit, ClosestApproachCoarseSamples);
-        (bestShipAngle, bestDestAngle) = RefineClosestApproach(
-            shipOrbit, destOrbit,
-            bestShipAngle, bestDestAngle,
-            ClosestApproachFineWindow, ClosestApproachFineSamples);
-
-        var (secondShipAngle, secondDestAngle, secondDistSq) = FindClosestApproachAnglesWithExclusion(
-            shipOrbit, destOrbit, ClosestApproachCoarseSamples, bestShipAngle, ClosestApproachExclusionWindow);
-
-        var approaches = new List<(double shipAngle, double destAngle)> { (bestShipAngle, bestDestAngle) };
-        if (double.IsFinite(secondDistSq) && secondDistSq < double.MaxValue)
-        {
-            (secondShipAngle, secondDestAngle) = RefineClosestApproach(
-                shipOrbit, destOrbit,
-                secondShipAngle, secondDestAngle,
-                ClosestApproachFineWindow, ClosestApproachFineSamples);
-
-            var angSep = AngularDistance(bestShipAngle, secondShipAngle);
-            if (angSep > 0.05d)
-            {
-                approaches.Add((secondShipAngle, secondDestAngle));
-            }
-        }
-
-        for (int idx = 0; idx < approaches.Count; idx++)
-        {
-            var (sa, da) = approaches[idx];
-            var approachColor = ClosestApproachColors[Math.Min(idx, ClosestApproachColors.Length - 1)];
-
-            var shipPosD = shipOrbit.GetPositionAtAngleD(sa);
-            var destPosD = destOrbit.GetPositionAtAngleD(da);
-            var dx = shipPosD.X - destPosD.X;
-            var dy = shipPosD.Y - destPosD.Y;
-            var approachDistanceMeters = Math.Sqrt((dx * dx) + (dy * dy));
-
-            if (approachDistanceMeters > ClosestApproachLineThresholdMeters)
-            {
-                var shipScreen = ProjectPosition(shipPosD);
-                var destScreen = ProjectPosition(destPosD);
-                DrawDashedLine(shipScreen, destScreen, ClosestApproachDashColor, 1.2f, 6f, 4f);
-            }
-
-            DrawInboundChevronAtOrbitPoint(shipOrbit, sa, approachColor);
-            DrawInboundChevronAtOrbitPoint(destOrbit, da, approachColor);
-
-            try
-            {
-                var timeToShip = shipOrbit.TimeToTrueAomaly(sa);
-                if (!double.IsInfinity(timeToShip) && !double.IsNaN(timeToShip))
-                {
-                    var predictedDestAngle = TrueAnomalyAfterTime(destOrbit, timeToShip);
-                    DrawInboundChevronAtOrbitPoint(destOrbit, predictedDestAngle, approachColor);
-
-                    if (shipObj is Ship && destObj is Ship)
-                    {
-                        try
-                        {
-                            var shipPredictedD = shipOrbit.GetPositionAtAngleD(sa);
-                            var destPredictedD = destOrbit.GetPositionAtAngleD(predictedDestAngle);
-                            var distMeters = Math.Sqrt(Math.Pow(shipPredictedD.X - destPredictedD.X, 2) + Math.Pow(shipPredictedD.Y - destPredictedD.Y, 2));
-
-                            var shipCenter = ProjectPosition(shipPredictedD);
-                            var destCenter = ProjectPosition(destPredictedD);
-                            var safe = distMeters >= GameConstants.ShipSepration;
-                            var col = safe ? ActiveShipColor : EncroachedSeparationColor;
-
-                            DrawProjectedSeparationEllipse(
-                                center: shipCenter,
-                                worldRadiusMeters: GameConstants.ShipSepration / 2d,
-                                atRadiusMeters: Math.Max(1d, shipPredictedD.Length()),
-                                color: col,
-                                thickness: 1.5f);
-
-                            DrawProjectedSeparationEllipse(
-                                center: destCenter,
-                                worldRadiusMeters: GameConstants.ShipSepration / 2d,
-                                atRadiusMeters: Math.Max(1d, destPredictedD.Length()),
-                                color: col,
-                                thickness: 1.5f);
-                        }
-                        catch
-                        {
-                        }
-                    }
-                }
-            }
-            catch
-            {
-            }
-        }
-    }
-
-    private void DrawInboundChevronAtOrbitPoint(Orbit orbit, double trueAnomaly, Color color)
-    {
-        var pos = ProjectPosition(orbit.GetPositionAtAngleD(trueAnomaly));
-
-        const double tangentSample = 0.01d;
-        var prev = ProjectPosition(orbit.GetPositionAtAngleD(trueAnomaly - tangentSample));
-        var next = ProjectPosition(orbit.GetPositionAtAngleD(trueAnomaly + tangentSample));
-        var tangent = next - prev;
-        if (tangent.LengthSquared() <= 1e-6f)
-        {
-            tangent = Vector2.UnitX;
-        }
-        tangent.Normalize();
-
-        var inward = Vector2.UnitY;
-        var headLength = 10f;
-        var headWidth = 6f;
-        var tip = pos;
-        // keep tip on the orbit, but orient chevron toward the planet (downward in projected view)
-        var tailCenter = pos - inward * headLength;
-        var wingOffset = tangent * headWidth;
-
-        SpriteBatch.DrawLine(tip, tailCenter + wingOffset, color, 1.8f);
-        SpriteBatch.DrawLine(tip, tailCenter - wingOffset, color, 1.8f);
-    }
-
-    private static (double shipAngle, double destAngle) FindClosestApproachAngles(Orbit shipOrbit, Orbit destOrbit, int samples)
-    {
-        var bestDistSq = double.MaxValue;
-        var bestShip = 0d;
-        var bestDest = 0d;
-
-        var shipMax = shipOrbit.IsEscapeTrajectory ? shipOrbit.GetHyperbolicTrueAnomalyLimit() - 0.01d : Math.PI;
-        var destMax = destOrbit.IsEscapeTrajectory ? destOrbit.GetHyperbolicTrueAnomalyLimit() - 0.01d : Math.PI;
-
-        for (int i = 0; i <= samples; i++)
-        {
-            var a = -shipMax + (2d * shipMax * i / samples);
-            var pA = shipOrbit.GetPositionAtAngleD(a);
-            for (int j = 0; j <= samples; j++)
-            {
-                var b = -destMax + (2d * destMax * j / samples);
-                var pB = destOrbit.GetPositionAtAngleD(b);
-                var dx = pA.X - pB.X;
-                var dy = pA.Y - pB.Y;
-                var d2 = dx * dx + dy * dy;
-                if (d2 < bestDistSq)
-                {
-                    bestDistSq = d2;
-                    bestShip = a;
-                    bestDest = b;
-                }
-            }
-        }
-
-        return (bestShip, bestDest);
-    }
-
-    private static double AngularDistance(double a, double b)
-    {
-        var diff = (a - b + Math.PI) % (2d * Math.PI) - Math.PI;
-        return Math.Abs(diff);
-    }
-
-    private static (double shipAngle, double destAngle, double distSq) FindClosestApproachAnglesWithExclusion(
-        Orbit shipOrbit, Orbit destOrbit, int sampleCount, double excludeShipAngle, double excludeHalfWidth)
-    {
-        double bestDistSq = double.MaxValue;
-        double bestShipAngle = 0d;
-        double bestDestAngle = 0d;
-
-        var shipAngles = SampleOrbitAngles(shipOrbit, sampleCount);
-        var destAngles = SampleOrbitAngles(destOrbit, sampleCount);
-
-        var shipPositions = shipAngles.Select(a => shipOrbit.GetPositionAtAngle(a)).ToList();
-        var destPositions = destAngles.Select(a => destOrbit.GetPositionAtAngle(a)).ToList();
-
-        for (int i = 0; i < sampleCount; i++)
-        {
-            var sa = shipAngles[i];
-            if (AngularDistance(sa, excludeShipAngle) < excludeHalfWidth)
-                continue;
-
-            var sp = shipPositions[i];
-            for (int j = 0; j < sampleCount; j++)
-            {
-                var dp = destPositions[j];
-                var dx = sp.X - dp.X;
-                var dy = sp.Y - dp.Y;
-                var distSq = (dx * dx) + (dy * dy);
-                if (distSq < bestDistSq)
-                {
-                    bestDistSq = distSq;
-                    bestShipAngle = sa;
-                    bestDestAngle = destAngles[j];
-                }
-            }
-        }
-
-        return (bestShipAngle, bestDestAngle, bestDistSq);
-    }
-
-    private static (double shipAngle, double destAngle) RefineClosestApproach(
-        Orbit shipOrbit, Orbit destOrbit,
-        double coarseShipAngle, double coarseDestAngle,
-        double window, int sampleCount)
-    {
-        double bestDistSq = double.MaxValue;
-        double bestShipAngle = coarseShipAngle;
-        double bestDestAngle = coarseDestAngle;
-
-        var shipAngles = SampleOrbitAnglesAround(shipOrbit, coarseShipAngle, window, sampleCount);
-        var destAngles = SampleOrbitAnglesAround(destOrbit, coarseDestAngle, window, sampleCount);
-
-        foreach (var sa in shipAngles)
-        {
-            var sp = shipOrbit.GetPositionAtAngle(sa);
-            foreach (var da in destAngles)
-            {
-                var dp = destOrbit.GetPositionAtAngle(da);
-                var dx = sp.X - dp.X;
-                var dy = sp.Y - dp.Y;
-                var distSq = (dx * dx) + (dy * dy);
-                if (distSq < bestDistSq)
-                {
-                    bestDistSq = distSq;
-                    bestShipAngle = sa;
-                    bestDestAngle = da;
-                }
-            }
-        }
-
-        return (bestShipAngle, bestDestAngle);
-    }
-
-    private static IReadOnlyList<double> SampleOrbitAngles(Orbit orbit, int count)
-    {
-        var angles = new List<double>(count);
-        if (orbit.IsEscapeTrajectory)
-        {
-            var limit = orbit.GetHyperbolicTrueAnomalyLimit() - 0.01d;
-            for (int i = 0; i < count; i++)
-            {
-                angles.Add(-limit + (2d * limit * i / (count - 1)));
-            }
-        }
-        else
-        {
-            for (int i = 0; i < count; i++)
-            {
-                angles.Add(2d * Math.PI * i / count);
-            }
-        }
-        return angles;
-    }
-
-    private static IReadOnlyList<double> SampleOrbitAnglesAround(Orbit orbit, double center, double window, int count)
-    {
-        var angles = new List<double>(count);
-        for (int i = 0; i < count; i++)
-        {
-            var angle = center - window + (2d * window * i / (count - 1));
-            if (!orbit.IsEscapeTrajectory)
-            {
-                angle = ((angle % (2d * Math.PI)) + (2d * Math.PI)) % (2d * Math.PI);
-            }
-            else
-            {
-                var limit = orbit.GetHyperbolicTrueAnomalyLimit() - 0.01d;
-                angle = Math.Clamp(angle, -limit, limit);
-            }
-            angles.Add(angle);
-        }
-        return angles;
-    }
-
-    private static double TrueAnomalyAfterTime(Orbit orbit, double deltaT)
-    {
-        if (orbit.IsEscapeTrajectory)
-        {
-            return orbit.TrueAnomaly;
-        }
-
-        double mu = PhysicalConstants.G * GameState.CentralBody.Mass;
-        double a = (orbit.Apoapsis + orbit.Periapsis + (2d * GameState.CentralBody.Radius)) / 2d;
-        double n = Math.Sqrt(mu / Math.Pow(a, 3d));
-
-        double e = (orbit.Apoapsis - orbit.Periapsis) / (orbit.Apoapsis + orbit.Periapsis + (2d * GameState.CentralBody.Radius));
-
-        double f0 = orbit.TrueAnomaly;
-        double E0;
-        if (Math.Abs(e) < 1e-12)
-        {
-            E0 = f0;
-        }
-        else
-        {
-            E0 = 2d * Math.Atan(Math.Sqrt((1d - e) / (1d + e)) * Math.Tan(f0 / 2d));
-        }
-
-        double M0 = E0 - (e * Math.Sin(E0));
-        double Mtarget = M0 + n * deltaT;
-        Mtarget = ((Mtarget % (2d * Math.PI)) + (2d * Math.PI)) % (2d * Math.PI);
-
-        double E = Mtarget;
-        for (int i = 0; i < 60; i++)
-        {
-            double f = E - e * Math.Sin(E) - Mtarget;
-            double fp = 1d - e * Math.Cos(E);
-            if (Math.Abs(fp) < 1e-12) break;
-            double dE = f / fp;
-            E -= dE;
-            if (Math.Abs(dE) < 1e-12) break;
-        }
-
-        double ft;
-        if (Math.Abs(e) < 1e-12)
-        {
-            ft = E;
-        }
-        else
-        {
-            ft = 2d * Math.Atan(Math.Sqrt((1d + e) / (1d - e)) * Math.Tan(E / 2d));
-        }
-
-        if (ft < 0d) ft += 2d * Math.PI;
-        return ft;
     }
 
     private void DrawOrbit(Orbit orbit, Color color)

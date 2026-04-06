@@ -1,5 +1,6 @@
 ﻿using SpaceTrafficController.Simulation;
 using SpaceTrafficController.Simulation.OrbitingObjects;
+using SpaceTrafficController.Core;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -10,8 +11,9 @@ namespace SpaceTrafficController.GameObjects;
 
 public class Station : HasOrbit
 {
-    public const double DefaultControlAreaHalfAltitudeMeters = 75e3;
-    public const double DefaultControlAreaArrivalExtentMeters = 500e3;
+    public const int DefaultApproachLaneCount = 3;
+    public const double DefaultControlAreaHalfAltitudeMeters = GameConstants.ControlLaneHalfWidthMeters + (DefaultApproachLaneCount * GameConstants.ControlLaneWidthMeters);
+    public const double DefaultControlAreaArrivalExtentMeters = 400e3;
     public const double DefaultControlAreaDepartureExtentMeters = 100e3;
 
     public Station(Orbit orbit) : base(orbit)
@@ -21,6 +23,8 @@ public class Station : HasOrbit
     public string Name { get; set; }
 
     public int NumberOfRunways { get; set; }
+
+    public int ApproachLaneCount { get; set; } = DefaultApproachLaneCount;
 
     public double ControlAreaHalfAltitudeMeters { get; set; } = DefaultControlAreaHalfAltitudeMeters;
 

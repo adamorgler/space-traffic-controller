@@ -1,4 +1,4 @@
 Source File,Dest File,Processor Type,Content Type,Source File Size,Dest File Size,Build Seconds
-"C:/dev/SpaceTrafficController/Content/DebugFont.spritefont","C:/dev/SpaceTrafficController/Content/bin/DesktopGL/Content/DebugFont.xnb","FontDescriptionProcessor","SpriteFontContent",2068,21535,0.1169594
-"C:/dev/SpaceTrafficController/Content/ManueverNode.spritefont","C:/dev/SpaceTrafficController/Content/bin/DesktopGL/Content/ManueverNode.xnb","FontDescriptionProcessor","SpriteFontContent",2067,13343,0.007386
-"C:/dev/SpaceTrafficController/Content/PausedFont.spritefont","C:/dev/SpaceTrafficController/Content/bin/DesktopGL/Content/PausedFont.xnb","FontDescriptionProcessor","SpriteFontContent",487,1201183,0.0186843
+"C:/dev/SpaceTrafficController/Content/DebugFont.spritefont","C:/dev/SpaceTrafficController/Content/bin/DesktopGL/Content/DebugFont.xnb","FontDescriptionProcessor","SpriteFontContent",2068,21535,0.1183877
+"C:/dev/SpaceTrafficController/Content/ManueverNode.spritefont","C:/dev/SpaceTrafficController/Content/bin/DesktopGL/Content/ManueverNode.xnb","FontDescriptionProcessor","SpriteFontContent",2067,13343,0.006528
+"C:/dev/SpaceTrafficController/Content/PausedFont.spritefont","C:/dev/SpaceTrafficController/Content/bin/DesktopGL/Content/PausedFont.xnb","FontDescriptionProcessor","SpriteFontContent",487,1201183,0.0157162

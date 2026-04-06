@@ -12,7 +12,12 @@ Release/
 *.userprefs
 *.cachefile
 *.log
+*.dylib
+*.so
+*.so.0
+*.xnb
 ipch/
 
 # MonoGame Specific
 CompiledContent/
+artifacts/temp-build/runtimes/iossimulator-x64/native/libopenal.dylib
