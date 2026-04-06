@@ -58,6 +58,8 @@ public class InputHandler
             GameState.TogglePause();
         }
 
+        var transferShortcutHandled = HandleTransferModeShortcuts();
+
         if (GameState.IsPaused)
         {
             HandlePausedUiClick();
@@ -98,7 +100,10 @@ public class InputHandler
         UpdateCameraFollowing();
 
         // right click target selection
-        HandleRightClick();
+        if (!transferShortcutHandled)
+        {
+            HandleRightClick();
+        }
 
         // if the camera was focused on a selected object but that object became unselected,
         // reset the camera back to the pre-focus pose
@@ -114,6 +119,33 @@ public class InputHandler
 
         PrevKeyboardState = KeyboardState;
         PrevMouseState = MouseState;
+    }
+
+    private bool HandleTransferModeShortcuts()
+    {
+        if (!GameState.IsHohmannTransferDialogOpen)
+        {
+            return false;
+        }
+
+        if (MouseState.RightButton == ButtonState.Pressed && PrevMouseState.RightButton == ButtonState.Released)
+        {
+            ApplyUIAction(new UIButtonResult(UIAction.HohmannCancel));
+            return true;
+        }
+
+        if (KeyboardState.IsKeyDown(Keys.Enter) && PrevKeyboardState.IsKeyUp(Keys.Enter))
+        {
+            if (GameState.IsHohmannTransferMouseTargetSelectionActive)
+            {
+                UpdateHohmannTransferMousePreview(forceApply: true);
+            }
+
+            ApplyUIAction(new UIButtonResult(UIAction.HohmannConfirm));
+            return true;
+        }
+
+        return false;
     }
 
     private void HandleRightClick()
@@ -522,7 +554,8 @@ public class InputHandler
             UIAction.ToggleShowManeuvers => true,
             UIAction.CameraFocusSelected => true,
             UIAction.CameraResetView => true,
-            UIAction.HohmannOpenDialog => true,
+            UIAction.HohmannOpenDialogApsis => true,
+            UIAction.HohmannOpenDialogImmediate => true,
             UIAction.HohmannAltitude10Decrease => true,
             UIAction.HohmannAltitude10Increase => true,
             UIAction.HohmannAltitude50Decrease => true,
@@ -602,10 +635,20 @@ public class InputHandler
             case UIAction.CircularizeAtAP:
                 ApplyCircularize(ship, atPeriapsis: false);
                 break;
-            case UIAction.HohmannOpenDialog:
+            case UIAction.HohmannOpenDialogApsis:
                 // Cancel any existing maneuver nodes
                 ship.ManeuverNode = null;
                 ship.NextManeuverNode = null;
+                GameState.HohmannTransferStartImmediate = false;
+                GameState.IsHohmannTransferDialogOpen = true;
+                GameState.IsHohmannTransferMouseTargetSelectionActive = true;
+                ApplyQuickHohmannTransferToAltitude(ship);
+                break;
+            case UIAction.HohmannOpenDialogImmediate:
+                // Cancel any existing maneuver nodes
+                ship.ManeuverNode = null;
+                ship.NextManeuverNode = null;
+                GameState.HohmannTransferStartImmediate = true;
                 GameState.IsHohmannTransferDialogOpen = true;
                 GameState.IsHohmannTransferMouseTargetSelectionActive = true;
                 ApplyQuickHohmannTransferToAltitude(ship);
@@ -652,10 +695,12 @@ public class InputHandler
                 }
                 GameState.IsHohmannTransferDialogOpen = false;
                 GameState.IsHohmannTransferMouseTargetSelectionActive = false;
+                GameState.HohmannTransferStartImmediate = false;
                 break;
             case UIAction.HohmannCancel:
                 GameState.IsHohmannTransferDialogOpen = false;
                 GameState.IsHohmannTransferMouseTargetSelectionActive = false;
+                GameState.HohmannTransferStartImmediate = false;
                 ship.ManeuverNode = null;
                 ship.NextManeuverNode = null;
                 break;
@@ -716,7 +761,9 @@ public class InputHandler
 
     private void ApplyQuickHohmannTransferToAltitude(Ship ship)
     {
-        ship.ApplyQuickHohmannTransferToAltitude(GameState.HohmannTransferTargetAltitudeMeters);
+        ship.ApplyQuickHohmannTransferToAltitude(
+            GameState.HohmannTransferTargetAltitudeMeters,
+            GameState.HohmannTransferStartImmediate);
     }
 
     private void UpdateHohmannTransferMousePreview(bool forceApply = false)
@@ -749,7 +796,7 @@ public class InputHandler
             GameState.HohmannTransferTargetAltitudeMeters = altitudeMeters;
         }
 
-        if (changed || forceApply)
+        if (changed || forceApply || GameState.HohmannTransferStartImmediate)
         {
             ApplyQuickHohmannTransferToAltitude(ship);
         }

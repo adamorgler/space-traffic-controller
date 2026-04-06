@@ -152,23 +152,23 @@ public sealed class StationDestination : ShipDestination
 
     private static bool IsOrbitCompatibleWithFrontArrival(Ship ship, Station station, double currentRadius)
     {
-        var stationOrbitAltitude = station.Orbit.Periapsis;
-        var upperBound = stationOrbitAltitude + station.ControlAreaHalfAltitudeMeters;
+        var stationOrbitRadius = Core.GameState.CentralBody.Radius + station.Orbit.Periapsis;
+        var upperBound = stationOrbitRadius + station.ControlAreaHalfAltitudeMeters;
         var radialVelocity = GetRadialVelocity(ship);
 
-        return currentRadius >= stationOrbitAltitude
+        return currentRadius >= stationOrbitRadius
             && currentRadius <= upperBound
             && radialVelocity <= 0d;
     }
 
     private static bool IsOrbitCompatibleWithRearArrival(Ship ship, Station station, double currentRadius)
     {
-        var stationOrbitAltitude = station.Orbit.Periapsis;
-        var lowerBound = stationOrbitAltitude - station.ControlAreaHalfAltitudeMeters;
+        var stationOrbitRadius = Core.GameState.CentralBody.Radius + station.Orbit.Periapsis;
+        var lowerBound = stationOrbitRadius - station.ControlAreaHalfAltitudeMeters;
         var radialVelocity = GetRadialVelocity(ship);
 
         return currentRadius >= lowerBound
-            && currentRadius <= stationOrbitAltitude
+            && currentRadius <= stationOrbitRadius
             && radialVelocity >= 0d;
     }
 

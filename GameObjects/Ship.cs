@@ -74,7 +74,7 @@ public class Ship : HasOrbit
         return PositionD.Length() >= controlRadius;
     }
 
-    public Orbit GetQuickHohmannTransferOrbit(double targetAltitudeMeters)
+    public Orbit GetQuickHohmannTransferOrbit(double targetAltitudeMeters, bool startImmediate = false)
     {
         var baseOrbit = Orbit;
         if (ManeuverNode is not null && ManeuverNode.IsConfirmed)
@@ -84,7 +84,7 @@ public class Ship : HasOrbit
                 baseOrbit = predicted;
         }
 
-        if (!TryBuildQuickHohmannNodes(targetAltitudeMeters, baseOrbit, out var firstBurnNode, out _))
+        if (!TryBuildQuickHohmannNodes(targetAltitudeMeters, baseOrbit, out var firstBurnNode, out _, startImmediate))
         {
             return null;
         }
@@ -92,7 +92,7 @@ public class Ship : HasOrbit
         return firstBurnNode.GetPredictedOrbit(baseOrbit);
     }
 
-    public bool ApplyQuickHohmannTransferToAltitude(double targetAltitudeMeters)
+    public bool ApplyQuickHohmannTransferToAltitude(double targetAltitudeMeters, bool startImmediate = false)
     {
         Orbit baseOrbit;
         var writeAsSecondNode = false;
@@ -126,7 +126,7 @@ public class Ship : HasOrbit
             baseOrbit = Orbit;
         }
 
-        if (!TryBuildQuickHohmannNodes(targetAltitudeMeters, baseOrbit, out var firstBurnNode, out var secondBurnNode))
+        if (!TryBuildQuickHohmannNodes(targetAltitudeMeters, baseOrbit, out var firstBurnNode, out var secondBurnNode, startImmediate))
         {
             return false;
         }
@@ -148,7 +148,8 @@ public class Ship : HasOrbit
         double targetAltitudeMeters,
         Orbit baseOrbit,
         out ManeuverNode firstBurnNode,
-        out ManeuverNode secondBurnNode)
+        out ManeuverNode secondBurnNode,
+        bool startImmediate)
     {
         firstBurnNode = null;
         secondBurnNode = null;
@@ -164,9 +165,20 @@ public class Ship : HasOrbit
             return false;
         }
 
-        var burnAtPeriapsis = IsPeriapsisSooner(baseOrbit);
-        var burnTrueAnomaly = burnAtPeriapsis ? 0d : Math.PI;
-        var burnRadius = burnAtPeriapsis ? baseOrbit.Perigee : baseOrbit.Apogee;
+        double burnTrueAnomaly;
+        double burnRadius;
+        if (startImmediate)
+        {
+            const double leadAngleRadians = 5d * Math.PI / 180d;
+            burnTrueAnomaly = NormalizeAngle(baseOrbit.TrueAnomaly + leadAngleRadians);
+            burnRadius = baseOrbit.GetRadiusFromFoci(burnTrueAnomaly);
+        }
+        else
+        {
+            var burnAtPeriapsis = IsPeriapsisSooner(baseOrbit);
+            burnTrueAnomaly = burnAtPeriapsis ? 0d : Math.PI;
+            burnRadius = burnAtPeriapsis ? baseOrbit.Perigee : baseOrbit.Apogee;
+        }
 
         if (!double.IsFinite(burnRadius) || burnRadius <= 0d)
         {
@@ -188,11 +200,46 @@ public class Ship : HasOrbit
 
         var transferSpeed = Math.Sqrt(transferSpeedSquared);
 
+        var burnPosition = baseOrbit.GetPositionAtAngleD(burnTrueAnomaly);
+        var burnVelocity = baseOrbit.GetVelocityAtAngleD(burnTrueAnomaly);
+        var progradeDir = DVector2.Normalize(burnVelocity);
+        if (progradeDir.Length() <= 0d)
+        {
+            return false;
+        }
+
+        var firstBurnProgradeDeltaV = transferSpeed - baseOrbit.GetVelocityMagnitudeAtAngle(burnTrueAnomaly);
+        var firstBurnNormalDeltaV = 0d;
+
+        if (startImmediate)
+        {
+            var radialDir = DVector2.Normalize(burnPosition);
+            if (radialDir.Length() <= 0d)
+            {
+                return false;
+            }
+
+            var motionSign = Math.Sign((burnPosition.X * burnVelocity.Y) - (burnPosition.Y * burnVelocity.X));
+            if (motionSign == 0d)
+            {
+                motionSign = 1;
+            }
+
+            var tangentialDir = new DVector2(-radialDir.Y * motionSign, radialDir.X * motionSign);
+            var desiredVelocity = tangentialDir * transferSpeed;
+            var deltaVVector = desiredVelocity - burnVelocity;
+            var normalDir = new DVector2(-progradeDir.Y, progradeDir.X);
+
+            firstBurnProgradeDeltaV = DVector2.Dot(deltaVVector, progradeDir);
+            firstBurnNormalDeltaV = DVector2.Dot(deltaVVector, normalDir);
+        }
+
         firstBurnNode = new ManeuverNode()
         {
             TrueAnomaly = burnTrueAnomaly,
             ScreenPosition = (baseOrbit.GetPositionAtAngleD(burnTrueAnomaly) / GameConstants.RenderingScale).ToVector2(),
-            ProgradeDeltaV = transferSpeed - baseOrbit.GetVelocityMagnitudeAtAngle(burnTrueAnomaly),
+            ProgradeDeltaV = firstBurnProgradeDeltaV,
+            NormalDeltaV = firstBurnNormalDeltaV,
         };
 
         var transferOrbit = firstBurnNode.GetPredictedOrbit(baseOrbit);
@@ -231,6 +278,18 @@ public class Ship : HasOrbit
         if (!double.IsFinite(timeToApoapsis)) return true;
 
         return timeToPeriapsis <= timeToApoapsis;
+    }
+
+    private static double NormalizeAngle(double angle)
+    {
+        var twoPi = 2d * Math.PI;
+        angle %= twoPi;
+        if (angle < 0d)
+        {
+            angle += twoPi;
+        }
+
+        return angle;
     }
 }
 

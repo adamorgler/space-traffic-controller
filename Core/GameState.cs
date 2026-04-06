@@ -56,6 +56,7 @@ public class GameState
     public double HohmannTransferTargetAltitudeMeters { get; set; }
     public bool IsHohmannTransferDialogOpen { get; set; } = false;
     public bool IsHohmannTransferMouseTargetSelectionActive { get; set; } = false;
+    public bool HohmannTransferStartImmediate { get; set; } = false;
     public double Score { get; private set; }
     public int ScoreMultiplier { get; private set; }
     public int TargetActiveShips => GetTargetShipCount();
@@ -77,6 +78,7 @@ public class GameState
         IsCameraFocusedOnSelected = false;
         HohmannTransferTargetAltitudeMeters = Math.Clamp(500e3, 0d, CentralBody.ControlAltitudeMeters);
         IsHohmannTransferMouseTargetSelectionActive = false;
+        HohmannTransferStartImmediate = false;
         Score = 6d;
         ScoreMultiplier = 1;
         _timeSinceOutboundSpawnSeconds = 0d;

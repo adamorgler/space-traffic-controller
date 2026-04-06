@@ -9,7 +9,7 @@ using System.Collections.Generic;
 
 namespace SpaceTrafficController.UI;
 
-public enum UIAction { None, ManeuverProgradeStep, ManeuverNormalStep, CircularizeAtPE, CircularizeAtAP, HohmannOpenDialog, HohmannAltitude10Decrease, HohmannAltitude10Increase, HohmannAltitude50Decrease, HohmannAltitude50Increase, HohmannAltitude100Decrease, HohmannAltitude100Increase, HohmannConfirm, HohmannCancel, ManeuverAccept, ManeuverCancel, WarpDecrease, WarpIncrease, PauseToggle, CameraFocusSelected, CameraResetView, ToggleOrbitsVisibility, ToggleShowManeuvers, ToggleViewMode }
+public enum UIAction { None, ManeuverProgradeStep, ManeuverNormalStep, CircularizeAtPE, CircularizeAtAP, HohmannOpenDialogApsis, HohmannOpenDialogImmediate, HohmannAltitude10Decrease, HohmannAltitude10Increase, HohmannAltitude50Decrease, HohmannAltitude50Increase, HohmannAltitude100Decrease, HohmannAltitude100Increase, HohmannConfirm, HohmannCancel, ManeuverAccept, ManeuverCancel, WarpDecrease, WarpIncrease, PauseToggle, CameraFocusSelected, CameraResetView, ToggleOrbitsVisibility, ToggleShowManeuvers, ToggleViewMode }
 public record UIButtonResult(UIAction Action, double StepValue = 0d);
 
 public class UIRenderer
@@ -235,7 +235,7 @@ public class UIRenderer
 
         var showCameraButtons = selected is Ship;
         var cameraSectionHeight = showCameraButtons ? (cameraBtnHeight + padding / 2f) : 0f;
-        var transferHeight = selected is Ship ? padding / 2f + btnHeight : 0f;
+        var transferHeight = selected is Ship ? (padding / 2f) + (btnHeight * 2f) + btnGap : 0f;
 
         var panelHeight = padding * 2f + lineHeight * (1 + statLines.Length) + additionalCircularizeHeight + transferHeight + cameraSectionHeight;
         var panelX = GraphicsDevice.Viewport.Width - panelWidth - padding;
@@ -275,8 +275,14 @@ public class UIRenderer
 
             DrawPanelButton(
                 new RectangleF(panelX + padding, transferBtnY, panelWidth - (padding * 2f), btnHeight),
-                "Hohmann Transfer",
-                new UIButtonResult(UIAction.HohmannOpenDialog),
+                "Transfer (Next AP/PE)",
+                new UIButtonResult(UIAction.HohmannOpenDialogApsis),
+                new Color(24, 72, 96));
+
+            DrawPanelButton(
+                new RectangleF(panelX + padding, transferBtnY + btnHeight + btnGap, panelWidth - (padding * 2f), btnHeight),
+                "Transfer (Immediate)",
+                new UIButtonResult(UIAction.HohmannOpenDialogImmediate),
                 new Color(24, 72, 96));
         }
 
@@ -481,7 +487,8 @@ public class UIRenderer
         SpriteBatch.DrawString(font, "HOHMANN TRANSFER", new Vector2(panelX + padding, cy), Color.Gold);
         cy += lineHeight;
 
-        var modeText = isMouseSelecting ? "Move mouse over target orbit, then click to lock" : "Target locked - fine tune and Accept";
+        var startModeText = gameState.HohmannTransferStartImmediate ? "Start: Immediate (+5 deg)" : "Start: Next AP/PE";
+        var modeText = isMouseSelecting ? $"{startModeText}  |  Move mouse over target orbit, then click to lock" : $"{startModeText}  |  Target locked - fine tune and Accept";
         SpriteBatch.DrawString(font, modeText, new Vector2(panelX + padding, cy), isMouseSelecting ? Color.Orange : Color.LightGreen);
         cy += lineHeight;
 

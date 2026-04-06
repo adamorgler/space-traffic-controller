@@ -53,26 +53,25 @@ public static class OrbitUtils
         DVector2 eVec = ((((v * v) - (mu / r)) * pos) - (DVector2.Dot(pos, velocity) * velocity)) / mu;
         double e = Math.Max(0d, eVec.Length());
 
-        // True anomaly (angle between position and eccentricity vector)
-        double cosTheta;
-        if (e <= 1e-12)
+        // Argument of periapsis (angle between x-axis and eccentricity vector)
+        double argumentOfPeriapsis = e <= 1e-9 ? 0d : Math.Atan2(eVec.Y, eVec.X);
+
+        // True anomaly
+        // Use atan2(sinν, cosν) for robust quadrant handling. The old acos-only approach
+        // could misidentify ν when radial velocity was ~0 (common near circular burns),
+        // causing apparent position jumps at maneuver execution.
+        double trueAnomaly;
+        if (e <= 1e-9)
         {
-            cosTheta = pos.X / r;
+            // Circular case: periapsis direction is undefined, so preserve actual inertial angle.
+            trueAnomaly = NormalizeAngle0ToTwoPi(Math.Atan2(pos.Y, pos.X));
         }
         else
         {
-            cosTheta = DVector2.Dot(eVec, pos) / (e * r);
+            var cosTheta = (DVector2.Dot(eVec, pos) / (e * r)).Clamp(-1d, 1d);
+            var sinTheta = ((eVec.X * pos.Y) - (eVec.Y * pos.X)) / (e * r);
+            trueAnomaly = NormalizeAngle0ToTwoPi(Math.Atan2(sinTheta, cosTheta));
         }
-
-        cosTheta = cosTheta.Clamp(-1d, 1d); // avoid NaNs
-        double trueAnomaly = Math.Acos(cosTheta);
-        if (DVector2.Dot(pos, velocity) < 0d)
-        {
-            trueAnomaly = (2d * Math.PI) - trueAnomaly;
-        }
-
-        // Argument of periapsis (angle between x-axis and eccentricity vector)
-        double argumentOfPeriapsis = e <= 1e-12 ? 0d : Math.Atan2(eVec.Y, eVec.X);
 
         // Numerically stable ellipse parameters from semi-latus rectum p.
         // This avoids instability when energy is near parabolic and a gets very large.
@@ -98,6 +97,12 @@ public static class OrbitUtils
         }
 
         return new Orbit(apoapsis, periapsis, argumentOfPeriapsis, trueAnomaly, e);
+    }
+
+    private static double NormalizeAngle0ToTwoPi(double angle)
+    {
+        var wrapped = angle % (2d * Math.PI);
+        return wrapped < 0d ? wrapped + (2d * Math.PI) : wrapped;
     }
 }
 
